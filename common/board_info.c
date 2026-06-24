@@ -32,13 +32,16 @@ int show_board_info(void)
 		config_name = fdt_getprop(gd->fdt_blob, 0, "config_name", NULL);
 #endif
 
-		if (model) {
 #ifdef CONFIG_BOARD_DISPLAY_NAME
-			printf("Model: %s (%s)\n", CONFIG_BOARD_DISPLAY_NAME, model);
-#else
-			printf("Model: %s\n", model);
-#endif
+		printf("Model: %s\n", CONFIG_BOARD_DISPLAY_NAME);
+		if (model) {
+			printf("Reference DTS Model: %s\n", model);
 		}
+#else
+		if (model) {
+			printf("Model: %s\n", model);
+		}
+#endif
 
 #ifdef CONFIG_BOARD_DISPLAY_NAME
 		if (config_name) {

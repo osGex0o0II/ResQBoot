@@ -47,6 +47,9 @@ jobs:
           echo "Current timezone: $(timedatectl show -p Timezone --value)"
           echo "Current time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 
+      - name: Check device metadata
+        run: python3 scripts/check_devices.py
+
       - name: Setup Node.js 24
         uses: actions/setup-node@v6.4.0
         with:

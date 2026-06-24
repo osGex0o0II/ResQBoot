@@ -1,0 +1,50 @@
+platform,config,device_name,readme_name,display_name,aliases,machid,tested,dts,notes
+IPQ40xx,ipq40xx_aliyun_ap4220,Aliyun AP4220,阿里云 AP4220,Aliyun AP4220,,0x9000010,yes,arch/arm/dts/ipq40xx-aliyun-ap4220.dts,
+IPQ40xx,ipq40xx_standard,QCA Standard Common,公版标准,QCA Standard Common,,,yes,,generic standard build
+IPQ40xx,ipq40xx_p2w_r619ac,P&W R619AC,P&W R619AC,P&W R619AC,P2W R619AC,0x8010006,yes,arch/arm/dts/ipq40xx-p2w-r619ac.dts,
+IPQ40xx,ipq40xx_thinkplus_fogpod800,ThinkPlus FogPod800,ThinkPlus FogPod800,ThinkPlus FogPod800,,0x8010100,yes,arch/arm/dts/ipq40xx-thinkplus-fogpod800.dts,
+IPQ40xx,ipq40xx,QCA Common,公版基础,QCA Common,,,yes,,generic base build
+IPQ5018,ipq5018_ctcc_ap301_l,CTCC AP301-L,CTCC AP301-L,CTCC AP301-L,,0x8040002,yes,arch/arm/dts/ipq5018-ctcc-ap301-l.dts,
+IPQ5018,ipq5018_cmcc_rax3000q,CMCC RAX3000Q,CMCC RAX3000Q,CMCC RAX3000Q,,0x8040000,no,arch/arm/dts/ipq5018-cmcc-rax3000q.dts,
+IPQ5018,ipq5018_cucc_vs010,CUCC VS010,CUCC VS010,CUCC VS010,,0x8040000,yes,arch/arm/dts/ipq5018-cucc-vs010.dts,
+IPQ5018,ipq5018_gl_b3000,GL.iNet GL-B3000,GL.iNet GL-B3000,GL.iNet GL-B3000,GLINET GL-B3000,0x8040004,no,arch/arm/dts/ipq5018-gl-b3000.dts,
+IPQ5018,ipq5018_jdcloud_ax3000,JDCloud AX3000 (RE-OS-03U),JDCloud AX3000 (RE-OS-03U),JDCloud AX3000 (RE-OS-03U),,0x8040104,yes,arch/arm/dts/ipq5018-jdcloud-ax3000.dts,
+IPQ5018,ipq5018_mr3000d_04,CMCC MR3000D-04,CMCC MR3000D-04,CMCC MR3000D-04,,0x8040702,yes,arch/arm/dts/ipq5018-mr3000d-04.dts,
+IPQ5018,ipq5018_mr3000d_ci,CMCC MR3000D-CI,CMCC MR3000D-CI,CMCC MR3000D-CI,,0x8040802,yes,arch/arm/dts/ipq5018-mr3000d-ci.dts,
+IPQ5018,ipq5018_pz_l8,CMCC PZ-L8,CMCC PZ-L8,CMCC PZ-L8,,0x8040000,no,arch/arm/dts/ipq5018-pz-l8.dts,
+IPQ5018,ipq5018_ruijie_ma3063,Ruijie RG-MA3063,Ruijie RG-MA3063,Ruijie RG-MA3063,Ruijie MA3063,0x8040000;0x8040004,no,arch/arm/dts/ipq5018-ruijie-ma3063-mp02.1.dts;arch/arm/dts/ipq5018-ruijie-ma3063-mp03.5-c1.dts,
+IPQ5018,ipq5018_skspruce_ap8330c,SKSPRUCE AP8330C,SKSPRUCE AP8330C,SKSPRUCE AP8330C,Skspruce AP8330C,0x8040202,yes,arch/arm/dts/ipq5018-skspruce-ap8330c.dts,
+IPQ5018,ipq5018_tiny,QCA Tiny Common,公版简,QCA Tiny Common,,,yes,,generic tiny build
+IPQ5018,ipq5018_tiny_debug,QCA Tiny Debug Common,公版调试简,QCA Tiny Debug Common,,,yes,,generic tiny debug build
+IPQ5018,ipq5018,QCA Standard Common,公版基础,QCA Standard Common,,,yes,,generic base build
+IPQ5332,ipq5332_h3c_ne36pro,H3C NE36PRO,H3C NE36PRO,H3C NE36PRO,,0x8060004,yes,arch/arm/dts/ipq5332-h3c-ne36pro.dts,
+IPQ5332,ipq5332_jdcloud_be6500,JDCloud BE6500 (JDBox RE-CS-06),JDCloud BE6500 (JDBox RE-CS-06),JDCloud BE6500 (JDBox RE-CS-06),,0x8060000,yes,arch/arm/dts/ipq5332-jdcloud-be6500.dts,
+IPQ5332,ipq5332_xiaomi_be306,Xiaomi BE306,Xiaomi BE306,Xiaomi BE306,,0x8060004,no,arch/arm/dts/ipq5332-xiaomi-be306.dts,
+IPQ5332,ipq5332_xiaomi_be6500,Xiaomi BE6500 (RN02),Xiaomi BE6500 (RN02),Xiaomi BE6500 (RN02),,0x8060001,yes,arch/arm/dts/ipq5332-xiaomi-be6500.dts,
+IPQ5332,ipq5332_tiny,QCA Tiny Common,公版简,QCA Tiny Common,,,yes,,generic tiny build
+IPQ5332,ipq5332_tiny_nor,QCA Tiny NOR Common,QCA Tiny NOR Common,QCA Tiny NOR Common,,,yes,,generic tiny NOR build
+IPQ5332,ipq5332_tiny_debug,QCA Tiny Debug Common,公版调试简,QCA Tiny Debug Common,,,yes,,generic tiny debug build
+IPQ5332,ipq5332_tiny2,QCA Tiny2 Common,公版简2,QCA Tiny2 Common,,,yes,,generic tiny2 build
+IPQ5332,ipq5332,QCA Standard Common,公版基础,QCA Standard Common,,,yes,,generic base build
+IPQ6018,ipq6018_360v6,Qihoo 360 V6,Qihoo 360 V6,Qihoo 360 V6,Qihoo 360v6,0x8030200,yes,arch/arm/dts/ipq6018-360v6.dts,
+IPQ6018,ipq6018_ax1800pro,JDCloud AX1800Pro,京东云 AX1800Pro,JDCloud AX1800Pro,,0x8030201,yes,arch/arm/dts/ipq6018-ax1800pro.dts,
+IPQ6018,ipq6018_ax5_jdcloud,JDCloud AX5,京东云 AX5,JDCloud AX5,,0x8030200,yes,arch/arm/dts/ipq6018-ax5-jdcloud.dts,
+IPQ6018,ipq6018_dptech_ap3000_2c,DPtech AP3000-2C,DPtech AP3000-2C,DPtech AP3000-2C,,0x8030200,yes,arch/arm/dts/ipq6018-dptech-ap3000-2c.dts,
+IPQ6018,ipq6018_gl_axt1800,GL.iNet GL-AXT1800 / GL-AX1800,GL.iNet GL-AXT1800 / GL-AX1800,GL.iNet GL-AXT1800 / GL-AX1800,GLINET GL-AXT1800 / GL-AX1800,0x8030200,yes,arch/arm/dts/ipq6018-gl-axt1800.dts,
+IPQ6018,ipq6018_philips_ly1800,Philips LY1800 / SY Y6010,Philips LY1800 / SY Y6010,Philips LY1800 / SY Y6010,,0x8030000,yes,arch/arm/dts/ipq6018-philips-ly1800.dts,
+IPQ6018,ipq6018_jdcloud_ax6600,JDCloud AX6600,京东云 AX6600,JDCloud AX6600,,0x8030202,yes,arch/arm/dts/ipq6018-jdcloud-ax6600.dts,
+IPQ6018,ipq6018_jdcloud_er1,JDCloud ER1,京东云 ER1,JDCloud ER1,,0x8030203,yes,arch/arm/dts/ipq6018-jdcloud-er1.dts,
+IPQ6018,ipq6018_m2,ZN M2 / CMIOT AX18,ZN M2 / CMIOT AX18,ZN M2 / CMIOT AX18,ZN M2,0x8030200,yes,arch/arm/dts/ipq6018-m2.dts,
+IPQ6018,ipq6018_nn6000,Link NN6000,Link NN6000,Link NN6000,,0x8030200,yes,arch/arm/dts/ipq6018-nn6000.dts,
+IPQ6018,ipq6018_xiaomi_ax1800,Xiaomi AX1800,Xiaomi AX1800,Xiaomi AX1800,,0x8030200,yes,arch/arm/dts/ipq6018-xiaomi-ax1800.dts,
+IPQ6018,ipq6018_tiny,QCA Tiny Common,公版简,QCA Tiny Common,,,yes,,generic tiny build
+IPQ6018,ipq6018,QCA Common,公版基础,QCA Common,,,yes,,generic base build
+IPQ6018,ipq6018_zxelink_w212x,ZXeLink ZXWL W212X,ZXeLink ZXWL W212X,ZXeLink ZXWL W212X,ZXeLink W212X,0x8030200,yes,arch/arm/dts/ipq6018-zxelink-w212x.dts,
+IPQ806x,ipq806x_standard,QCA Standard Common,公版标准,QCA Standard Common,,,unknown,,generic standard build
+IPQ806x,ipq806x,QCA Common,公版基础,QCA Common,,,unknown,,generic base build
+IPQ807x,ipq807x_aliyun_ap8220,Aliyun AP8220,Aliyun AP8220,Aliyun AP8220,,0x0801000A,yes,arch/arm/dts/ipq807x-aliyun-ap8220.dts,
+IPQ807x,ipq807x_redmi_ax6,Redmi AX6 / Xiaomi AX3600,Redmi AX6 / Xiaomi AX3600,Redmi AX6 / Xiaomi AX3600,,0x08010010,yes,arch/arm/dts/ipq807x-redmi-ax6.dts,
+IPQ807x,ipq807x_tiny,QCA Tiny Common,公版简,QCA Tiny Common,,,yes,,generic tiny build
+IPQ807x,ipq807x_xglink_5gcpe,XGlink 5GCPE,XGlink 5GCPE,XGlink 5GCPE,,0x08010008,yes,arch/arm/dts/ipq807x-xglink-5gcpe.dts,
+IPQ807x,ipq807x,QCA Common,公版基础,QCA Common,,,yes,,generic base build
+IPQ9574,ipq9574,QCA Common,公版基础,QCA Common,,,unknown,,generic base build
