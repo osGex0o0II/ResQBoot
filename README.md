@@ -1,4 +1,4 @@
-# U-Boot 2016 说明
+# ResQBoot 说明
 
 ## 项目简介
 
@@ -44,9 +44,9 @@ npm install -g html-minifier-terser clean-css terser
 ## 快速开始
 
 ```bash
-git clone https://github.com/1980490718/u-boot-2016.git
+git clone https://github.com/osGex0o0II/ResQBoot.git
 git clone https://github.com/1980490718/toolchain-arm_cortex-a7_gcc-5.2.0.git staging_dir
-cd u-boot-2016
+cd ResQBoot
 ./build.sh clean
 ```
 
