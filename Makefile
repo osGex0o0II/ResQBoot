@@ -1397,7 +1397,12 @@ $(version_h): include/config/uboot.release FORCE
 $(timestamp_h): $(srctree)/Makefile FORCE
 	$(call filechk,timestamp.h)
 #ifdef CONFIG_HTTPD
-	sed -i "s/Version:[^<]*</Version: U-Boot $(UBOOTRELEASE) (`LC_ALL=C date +'%b %d %C%y - %T %z'`)</g" $(CURDIR)/httpd/vendors/pig/*.html
+	build_date=$$(LC_ALL=C date +'%b %d %Y'); \
+	build_hash=$$(git -C $(srctree) rev-parse --short HEAD 2>/dev/null || echo unknown); \
+	device_name=$$(sed -n 's/^CONFIG_BOARD_DISPLAY_NAME="\(.*\)"/\1/p' $(KCONFIG_CONFIG) | head -n 1); \
+	[ -n "$$device_name" ] || device_name="Unknown Device"; \
+	footer_text="$$device_name | Version: ResQBoot g$$build_hash ($$build_date)"; \
+	footer_text="$$footer_text" $(PERL) -0pi -e '$$footer = $$ENV{footer_text}; $$footer =~ s/&/&amp;/g; $$footer =~ s/</&lt;/g; $$footer =~ s/>/&gt;/g; $$footer =~ s/"/&quot;/g; $$footer =~ s/\x27/&#39;/g; s#<p class="link-tip">[^<]*</p>#<p class="link-tip">$$footer</p>#g' $(CURDIR)/httpd/vendors/pig/*.html
 	cd $(srctree)/httpd; ./vendors/makefsdatac; cd -
 # endif
 

@@ -109,8 +109,7 @@ a:hover {
 }
 
 .card h2,
-.sidebar-nav-item.active a,
-.additional-links .link-tip a {
+.sidebar-nav-item.active a {
 	color: var(--c-heading)
 }
 
@@ -396,13 +395,11 @@ label {
 	margin-left: 2rem
 }
 
-/* ===== 页脚链接 ===== */
+/* ===== 页脚版本 ===== */
 .additional-links .link-tip {
-	font-size: 12px
-}
-
-.additional-links .link-tip a:hover {
-	text-decoration: underline
+	color: var(--c-text-light);
+	font-size: 12px;
+	text-align: center
 }
 
 /* ===== 加载动画（flashing页面） ===== */

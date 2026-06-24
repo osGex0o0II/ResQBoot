@@ -63,6 +63,11 @@ clean_elftombn_intermediate_files() {
 		  "bin/openwrt-${config_name}-u-boot_phdr.pbn"
 }
 
+restore_html_files() {
+	echo "Restoring HTML files to default version state..."
+	sed -i 's|<p class="link-tip">[^<]*</p>|<p class="link-tip"></p>|g' "$PWD"/httpd/vendors/pig/*.html
+}
+
 # Command validation and cleanup functions
 if [ $# -gt 0 ]; then
 	# First check for possible typos in cleanup commands
@@ -250,6 +255,10 @@ if [ ${#DEFCONFIGS[@]} -eq 0 ]; then
 exit 1
 fi
 
+trap restore_html_files EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 echo "Found ${#DEFCONFIGS[@]} defconfig files for $BOARD_NAME (IPQ type: $IPQ_TYPE):"
 printf '  - %s\n' "${DEFCONFIGS[@]}"
 echo ""
@@ -359,10 +368,6 @@ esac
 	fi
 	echo ""
 done
-
-# Restore HTML files to default version state
-echo "Restoring HTML files to default version state..."
-sed -i "s/Version:[^<]*</Version:</g" $PWD/httpd/vendors/pig/*.html
 
 # Print build summary
 echo "================================================"

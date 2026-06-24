@@ -7,6 +7,7 @@
 #include <common.h>
 #include <command.h>
 #include <net.h>
+#include <linux/ctype.h>
 #include <asm/byteorder.h>
 #include "httpd.h"
 #include "../httpd/uipopt.h"
@@ -31,6 +32,70 @@ static void print_upgrade_warning(const char *upgrade_type);
 
 static int arptimer = 0;
 struct in_addr net_httpd_ip;
+
+#define HTTPD_RECOVERY_IP	"192.168.1.1"
+#define HTTPD_RECOVERY_SERVERIP	"192.168.1.2"
+#define HTTPD_RECOVERY_NETMASK	"255.255.255.0"
+
+static int httpd_parse_ipv4(const char *ipaddr, unsigned int octets[4],
+			    struct in_addr *addr)
+{
+	const char *p = ipaddr;
+	char *end;
+	ulong packed = 0;
+	ulong val;
+	int i;
+
+	if (!ipaddr || !*ipaddr || !addr)
+		return -1;
+
+	for (i = 0; i < 4; i++) {
+		if (!isdigit((unsigned char)*p))
+			return -1;
+
+		val = simple_strtoul(p, &end, 10);
+		if (val > 255)
+			return -1;
+
+		if (i != 3) {
+			if (*end != '.')
+				return -1;
+			p = end + 1;
+		} else if (*end != '\0') {
+			return -1;
+		}
+
+		octets[i] = val;
+		packed = (packed << 8) | val;
+	}
+
+	if (packed == 0 || octets[3] == 0 || octets[3] == 255)
+		return -1;
+
+	addr->s_addr = htonl(packed);
+	return 0;
+}
+
+static void httpd_make_serverip(const unsigned int octets[4], char *serverip)
+{
+	unsigned int host = (octets[3] == 1) ? 2 : 1;
+
+	sprintf(serverip, "%u.%u.%u.%u", octets[0], octets[1], octets[2], host);
+}
+
+static void httpd_set_recovery_network(const char *ipaddr, const char *serverip,
+				       struct in_addr httpd_ip)
+{
+	setenv("ipaddr", ipaddr);
+	setenv("serverip", serverip);
+	setenv("netmask", HTTPD_RECOVERY_NETMASK);
+	setenv("gatewayip", NULL);
+	net_httpd_ip = httpd_ip;
+	net_copy_ip(&net_ip, &net_httpd_ip);
+	net_gateway.s_addr = 0;
+	net_netmask = string_to_ip(HTTPD_RECOVERY_NETMASK);
+	net_server_ip = string_to_ip(serverip);
+}
 
 void HttpdStart(void) {
 	net_init();
@@ -591,19 +656,25 @@ int do_httpd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]) {
 		return CMD_RET_SUCCESS;
 	}
 
-	if (argc >= 2) {
-		net_httpd_ip = string_to_ip(argv[1]);
-		if (net_httpd_ip.s_addr == 0) {
-			return CMD_RET_USAGE;
-		}
-		net_copy_ip(&net_ip, &net_httpd_ip);
-	} else {
-		net_copy_ip(&net_httpd_ip, &net_ip);
-	}
-
 	if (webfailsafe_is_running) {
 		printf("HTTP already running\n");
 		return CMD_RET_SUCCESS;
+	}
+
+	if (argc >= 2) {
+		struct in_addr custom_ip;
+		unsigned int octets[4];
+		char serverip[16];
+
+		if (httpd_parse_ipv4(argv[1], octets, &custom_ip) < 0) {
+			return CMD_RET_USAGE;
+		}
+		httpd_make_serverip(octets, serverip);
+		httpd_set_recovery_network(argv[1], serverip, custom_ip);
+	} else {
+		httpd_set_recovery_network(HTTPD_RECOVERY_IP,
+					   HTTPD_RECOVERY_SERVERIP,
+					   string_to_ip(HTTPD_RECOVERY_IP));
 	}
 	HttpdStart();
 	return CMD_RET_SUCCESS;
@@ -612,5 +683,6 @@ int do_httpd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]) {
 U_BOOT_CMD(
 	httpd, 2, 1, do_httpd,
 	"HTTP recovery server",
+	"[ipaddr] - start HTTP recovery server\n"
 	"  s - stop\n"
 );

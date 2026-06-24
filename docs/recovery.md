@@ -13,7 +13,7 @@ IPQ 构建默认使用以下 U-Boot 网络参数：
 | 服务器 IP / 电脑侧地址 | `192.168.1.2` |
 | Web 恢复地址 | `http://192.168.1.1/` |
 
-实际 Web 地址会优先使用设备中已经保存的 U-Boot 环境变量 `ipaddr`。如果设备之前保存过 `ipaddr=192.168.10.10`，Web 恢复页面就会出现在 `http://192.168.10.10/`，即使新固件的编译默认值是 `192.168.1.1`。
+进入 Web 恢复时，ResQBoot 会在运行态使用 `192.168.1.1/24`，并清除旧的网关设置。即使设备中曾经保存过 `ipaddr=192.168.10.10`，Web 恢复页面也会默认出现在 `http://192.168.1.1/`。
 
 电脑直连设备 LAN 口后，内置 DHCP 服务通常会自动分配地址。
 
@@ -118,14 +118,15 @@ saveenv
 printenv ipaddr serverip netmask gatewayip
 ```
 
-恢复编译默认网络参数：
+恢复保存的默认网络参数：
 
 ```text
-env default -f ipaddr serverip netmask gatewayip
+env default -f ipaddr serverip netmask
+setenv gatewayip
 saveenv
 ```
 
-重启后默认访问地址应恢复为 `http://192.168.1.1/`。
+重启后保存的网络参数应恢复为项目默认值。Web 恢复模式本身会在启动时临时使用 `http://192.168.1.1/`，不依赖旧环境变量。
 
 ## 排查建议
 
