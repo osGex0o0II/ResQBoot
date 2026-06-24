@@ -13,6 +13,8 @@ IPQ 构建默认使用以下 U-Boot 网络参数：
 | 服务器 IP / 电脑侧地址 | `192.168.1.2` |
 | Web 恢复地址 | `http://192.168.1.1/` |
 
+实际 Web 地址会优先使用设备中已经保存的 U-Boot 环境变量 `ipaddr`。如果设备之前保存过 `ipaddr=192.168.10.10`，Web 恢复页面就会出现在 `http://192.168.10.10/`，即使新固件的编译默认值是 `192.168.1.1`。
+
 电脑直连设备 LAN 口后，内置 DHCP 服务通常会自动分配地址。
 
 如果 DHCP 没有生效，请在电脑上手动设置静态地址：
@@ -107,6 +109,23 @@ saveenv
 ```
 
 清除后重启设备，U-Boot 会重新使用 DTB 中的默认条目。
+
+### 恢复默认网络
+
+查看当前网络环境变量：
+
+```text
+printenv ipaddr serverip netmask gatewayip
+```
+
+恢复编译默认网络参数：
+
+```text
+env default -f ipaddr serverip netmask gatewayip
+saveenv
+```
+
+重启后默认访问地址应恢复为 `http://192.168.1.1/`。
 
 ## 排查建议
 
