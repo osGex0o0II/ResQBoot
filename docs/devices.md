@@ -1,22 +1,22 @@
-# Supported Devices
+# 支持设备
 
-This page maps each build config to the actual device model and Release asset name.
+本页列出每个构建配置对应的实际设备型号和 Release 资产名。
 
-Release assets use:
+Release 资产使用以下命名格式：
 
 ```text
 <Platform>-<Device>.ext
 ```
 
-Use `.elf` for `IPQ40xx` and `IPQ806x`. Use `.mbn` for all other IPQ platforms.
+`IPQ40xx` 和 `IPQ806x` 使用 `.elf` 文件，其它 IPQ 平台使用 `.mbn` 文件。
 
-Tested values:
+测试状态说明：
 
-- `✓`: tested
-- `×`: not tested
-- `?`: unknown
+- `✓`：已测试
+- `×`：未测试
+- `?`：未知
 
-| Platform | Config | Device Model | Release Asset | Mach ID | Tested | Build |
+| 平台 | 配置 | 实际设备型号 | Release 资产 | Mach ID | 测试状态 | 编译命令 |
 | --- | --- | --- | --- | --- | --- | --- |
 | IPQ40xx | `ipq40xx_aliyun_ap4220` | Aliyun AP4220 | `IPQ40xx-Aliyun-AP4220.elf` | 0x9000010 | ✓ | `./build.sh ipq40xx_aliyun_ap4220` |
 | IPQ40xx | `ipq40xx_standard` | QCA Standard Common | `IPQ40xx-QCA-Standard.elf` | --- | ✓ | `./build.sh ipq40xx_standard` |

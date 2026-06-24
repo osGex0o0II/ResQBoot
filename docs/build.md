@@ -1,27 +1,27 @@
-# Build Guide
+# 构建指南
 
-This document describes how to build ResQBoot locally.
+本文说明如何在本地构建 ResQBoot。
 
-## Requirements
+## 系统要求
 
-Ubuntu 20.04 LTS or newer is recommended.
+推荐使用 Ubuntu 20.04 LTS 或更新版本。
 
-Install build dependencies:
+安装构建依赖：
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev python3 wget cpio flex bison bc rsync nodejs npm gzip zopfli device-tree-compiler
 ```
 
-Install the web UI compression tools used by `makefsdatac`:
+安装 `makefsdatac` 处理 Web 页面时需要的压缩工具：
 
 ```bash
 sudo npm install -g html-minifier-terser clean-css terser
 ```
 
-## Source And Toolchain
+## 源码和工具链
 
-Clone this repository and the toolchain side by side:
+将本仓库和工具链克隆到同一级目录：
 
 ```bash
 git clone https://github.com/osGex0o0II/ResQBoot.git
@@ -29,7 +29,7 @@ git clone https://github.com/1980490718/toolchain-arm_cortex-a7_gcc-5.2.0.git st
 cd ResQBoot
 ```
 
-The build scripts expect:
+构建脚本默认使用以下环境：
 
 ```text
 STAGING_DIR=../staging_dir/
@@ -37,62 +37,62 @@ CROSS_COMPILE=arm-openwrt-linux-
 ARCH=arm
 ```
 
-These values are set automatically by the build script.
+这些值会由构建脚本自动设置。
 
-## Build Commands
+## 构建命令
 
-Build all devices for one platform:
+构建某个平台的全部设备：
 
 ```bash
 ./build.sh ipq6018
 ```
 
-Build one device config:
+构建单个设备配置：
 
 ```bash
 ./build.sh ipq6018_jdcloud_ax6600
 ```
 
-Clean generated files:
+深度清理生成文件：
 
 ```bash
 ./build.sh clean
 ```
 
-Clean output files only:
+仅清理输出文件：
 
 ```bash
 ./build.sh clean_all
 ```
 
-## Output Files
+## 输出文件
 
-- `IPQ40xx` and `IPQ806x`: `bin/*.elf`
-- Other IPQ platforms: `bin/*.mbn`
+- `IPQ40xx` 和 `IPQ806x`：`bin/*.elf`
+- 其它 IPQ 平台：`bin/*.mbn`
 
-Release assets are renamed by CI to the shorter searchable format shown in [devices.md](devices.md).
+CI 会将 Release 资产重命名为 [devices.md](devices.md) 中展示的短英文文件名，方便搜索和下载。
 
-## Common Errors
+## 常见错误
 
-If you see an error like:
+如果出现类似错误：
 
 ```text
 httpd/fs.c:54:20: fatal error: fsdata.c: No such file or directory
 ```
 
-Check that Node.js and these npm packages are installed:
+请检查是否已经安装 Node.js 以及以下 npm 包：
 
 ```bash
 html-minifier-terser clean-css terser
 ```
 
-## CI Builds
+## CI 构建
 
-GitHub Actions builds all IPQ platforms on pushes to `main` and creates a daily Release tag such as `v2026-06-24`.
+每次推送到 `main` 时，GitHub Actions 会构建全部 IPQ 平台，并创建当天的 Release 标签，例如 `v2026-06-24`。
 
-The Release job:
+Release 任务会：
 
-- downloads platform build artifacts,
-- prepares short asset names from `docs/devices.csv`,
-- writes a Device Asset Index into the Release body,
-- deletes the existing same-day Release tag before uploading fresh assets.
+- 下载各平台构建产物；
+- 根据 `docs/devices.csv` 准备短英文资产名；
+- 将设备资产索引写入 Release 说明；
+- 上传新资产前删除同一天已有的 Release 标签。

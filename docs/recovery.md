@@ -1,100 +1,100 @@
-# Web Recovery Guide
+# Web 恢复指南
 
-This document covers the default network access and web recovery workflow.
+本文说明默认网络访问方式和 Web 恢复流程。
 
-## Default Network
+## 默认网络
 
-The IPQ builds use these default U-Boot network values:
+IPQ 构建默认使用以下 U-Boot 网络参数：
 
-| Item | Value |
+| 项目 | 值 |
 | --- | --- |
-| Device IP | `192.168.1.1` |
-| Netmask | `255.255.255.0` |
-| Server IP / host side | `192.168.1.2` |
-| Web recovery URL | `http://192.168.1.1/` |
+| 设备 IP | `192.168.1.1` |
+| 子网掩码 | `255.255.255.0` |
+| 服务器 IP / 电脑侧地址 | `192.168.1.2` |
+| Web 恢复地址 | `http://192.168.1.1/` |
 
-Connect your computer directly to the device LAN port. In many cases the built-in DHCP server will assign an address automatically.
+电脑直连设备 LAN 口后，内置 DHCP 服务通常会自动分配地址。
 
-If DHCP does not work, set a static address on your computer:
+如果 DHCP 没有生效，请在电脑上手动设置静态地址：
 
 ```text
-IP address: 192.168.1.2
-Netmask:    255.255.255.0
-Gateway:    leave empty or use 192.168.1.1
+IP 地址：  192.168.1.2
+子网掩码： 255.255.255.0
+网关：     可留空，也可填写 192.168.1.1
 ```
 
-Then open:
+然后打开：
 
 ```text
 http://192.168.1.1/
 ```
 
-## Browser Compatibility
+## 浏览器兼容性
 
-The recovery page is compressed with gzip/zopfli to reduce U-Boot image size and device resource usage.
+为了减小 U-Boot 镜像体积并降低设备资源占用，恢复页面使用 gzip/zopfli 压缩。
 
-Use a modern browser:
+建议使用现代浏览器：
 
 - Chrome 60+
 - Firefox 55+
 - Safari 11+
 - Edge 15+
 
-Internet Explorer is not supported.
+不支持 Internet Explorer。
 
-## Recovery Functions
+## 恢复功能
 
-The web recovery page can be used for:
+Web 恢复页面可用于：
 
-- U-Boot update,
-- firmware update,
-- CDT update,
-- MIBIB update,
-- GPT update,
-- ART update,
-- initramfs boot for debugging and recovery.
+- U-Boot 更新；
+- 固件更新；
+- CDT 更新；
+- MIBIB 更新；
+- GPT 更新；
+- ART 更新；
+- initramfs 启动，用于调试和救援。
 
-Only upload images that match your device and partition layout.
+请只上传与实际设备和分区布局匹配的镜像。
 
-## Environment Overrides
+## 环境变量覆盖
 
-### Reset Key
+### Reset 按键
 
-Use `reset_key=<GPIO_NUM>` to override the reset button GPIO.
+使用 `reset_key=<GPIO_NUM>` 覆盖 reset 按键 GPIO。
 
-TTL console:
+TTL 控制台：
 
 ```text
 setenv reset_key x
 saveenv
 ```
 
-Web environment page:
+Web 环境变量页面：
 
-- variable name: `reset_key`
-- variable value: `x`
+- 变量名：`reset_key`
+- 变量值：`x`
 
-Replace `x` with the known GPIO number.
+请将 `x` 替换为已知 GPIO 编号。
 
-### Config Name
+### 设备配置名
 
-Use `config_name=<config@xxx>` to override the device config name for cross-model or firmware testing.
+使用 `config_name=<config@xxx>` 覆盖设备配置名，方便跨机型或跨固件测试。
 
-TTL console:
+TTL 控制台：
 
 ```text
 setenv config_name config@xxx
 saveenv
 ```
 
-Web environment page:
+Web 环境变量页面：
 
-- variable name: `config_name`
-- variable value: `config@xxx`
+- 变量名：`config_name`
+- 变量值：`config@xxx`
 
-### Clear Overrides
+### 清除覆盖
 
-Clear an override from the TTL console:
+在 TTL 控制台清除覆盖变量：
 
 ```text
 setenv reset_key
@@ -106,13 +106,13 @@ setenv config_name
 saveenv
 ```
 
-Reboot after clearing the override so U-Boot falls back to the default DTB entry.
+清除后重启设备，U-Boot 会重新使用 DTB 中的默认条目。
 
-## Troubleshooting
+## 排查建议
 
-- Make sure your computer is on the `192.168.1.0/24` network.
-- Disable other active network adapters if the browser opens the wrong route.
-- Try a direct Ethernet connection instead of a switch.
-- Use `http://192.168.1.1/`, not `https://`.
-- Try another modern browser if the page does not render.
-- Check that you flashed the correct asset for your actual device model.
+- 确认电脑位于 `192.168.1.0/24` 网段。
+- 如果浏览器访问到了错误路由，临时禁用其它网络适配器。
+- 优先尝试电脑和设备直连，不要经过交换机。
+- 使用 `http://192.168.1.1/`，不要使用 `https://`。
+- 页面无法显示时，换一个现代浏览器测试。
+- 确认刷入的资产文件与实际设备型号匹配。
