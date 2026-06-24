@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate IPQ device metadata against defconfigs, README and DTS files."""
+"""Validate IPQ device metadata against defconfigs, docs and DTS files."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEVICES_CSV = ROOT / "docs" / "devices.csv"
+DEVICES_MD = ROOT / "docs" / "devices.md"
 README = ROOT / "README.md"
 CONFIGS_DIR = ROOT / "configs"
 
@@ -110,27 +111,30 @@ def read_defconfig_values(path: Path) -> dict[str, str]:
     return values
 
 
-def read_readme_table(errors: list[str]) -> dict[str, dict[str, str]]:
-    if not README.exists():
-        error(errors, "Missing README.md")
+def read_device_doc_table(errors: list[str]) -> dict[str, dict[str, str]]:
+    if not DEVICES_MD.exists():
+        error(errors, f"Missing {DEVICES_MD.relative_to(ROOT)}")
         return {}
 
     rows: dict[str, dict[str, str]] = {}
-    for line in README.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in DEVICES_MD.read_text(encoding="utf-8", errors="replace").splitlines():
         if not line.startswith("| IPQ"):
             continue
 
         parts = [part.strip() for part in line.split("|")]
-        if len(parts) < 7:
-            error(errors, f"Malformed README device row: {line}")
+        if len(parts) < 9:
+            error(errors, f"Malformed device docs row: {line}")
             continue
 
-        platform, config, device, machid, tested, command = parts[1:7]
-        if config in rows:
-            error(errors, f"Duplicate README config: {config}")
-        rows[config] = {
+        platform, config, device, asset, machid, tested, command = parts[1:8]
+        config_name = config.removeprefix("`").removesuffix("`")
+        if config_name in rows:
+            error(errors, f"Duplicate docs/devices.md config: {config}")
+        rows[config_name] = {
             "platform": platform,
+            "config": config,
             "device": device,
+            "asset": asset,
             "machid": machid,
             "tested": tested,
             "command": command,
@@ -178,39 +182,58 @@ def validate_defconfigs(devices: list[dict[str, str]], errors: list[str]) -> Non
             )
 
 
-def validate_readme(devices: list[dict[str, str]], errors: list[str]) -> None:
+def validate_readme_links(errors: list[str]) -> None:
+    if not README.exists():
+        error(errors, "Missing README.md")
+        return
+
+    text = README.read_text(encoding="utf-8", errors="replace")
+    for link in ("docs/devices.md", "docs/build.md", "docs/recovery.md", "releases/latest"):
+        if link not in text:
+            error(errors, f"README.md is missing link/reference to {link}")
+
+
+def validate_device_docs(devices: list[dict[str, str]], errors: list[str]) -> None:
     expected = {row["config"]: row for row in devices}
-    actual = read_readme_table(errors)
+    actual = read_device_doc_table(errors)
 
     missing = sorted(set(expected) - set(actual))
     extra = sorted(set(actual) - set(expected))
     for config in missing:
-        error(errors, f"{config}: listed in devices.csv but missing from README device table")
+        error(errors, f"{config}: listed in devices.csv but missing from docs/devices.md table")
     for config in extra:
-        error(errors, f"{config}: README device table row is missing from devices.csv")
+        error(errors, f"{config}: docs/devices.md table row is missing from devices.csv")
 
     for config, row in expected.items():
-        readme = actual.get(config)
-        if not readme:
+        docs = actual.get(config)
+        if not docs:
             continue
 
-        if readme["platform"] != row["platform"]:
-            error(errors, f"{config}: README platform is {readme['platform']!r}, expected {row['platform']!r}")
+        expected_config = f"`{config}`"
+        if docs["config"] != expected_config:
+            error(errors, f"{config}: docs config is {docs['config']!r}, expected {expected_config!r}")
 
-        if readme["device"] != row["readme_name"]:
-            error(errors, f"{config}: README device name is {readme['device']!r}, expected {row['readme_name']!r}")
+        if docs["platform"] != row["platform"]:
+            error(errors, f"{config}: docs platform is {docs['platform']!r}, expected {row['platform']!r}")
+
+        if docs["device"] != row["readme_name"]:
+            error(errors, f"{config}: docs device name is {docs['device']!r}, expected {row['readme_name']!r}")
+
+        expected_asset = f"`{release_asset_name(row)}`"
+        if docs["asset"] != expected_asset:
+            error(errors, f"{config}: docs release asset is {docs['asset']!r}, expected {expected_asset!r}")
 
         expected_machid = normalize_machid_for_readme(row["machid"])
-        if readme["machid"] != expected_machid:
-            error(errors, f"{config}: README machid is {readme['machid']!r}, expected {expected_machid!r}")
+        if docs["machid"] != expected_machid:
+            error(errors, f"{config}: docs machid is {docs['machid']!r}, expected {expected_machid!r}")
 
         expected_tested = TESTED_TO_README[row["tested"]]
-        if readme["tested"] != expected_tested:
-            error(errors, f"{config}: README tested is {readme['tested']!r}, expected {expected_tested!r}")
+        if docs["tested"] != expected_tested:
+            error(errors, f"{config}: docs tested is {docs['tested']!r}, expected {expected_tested!r}")
 
         expected_command = f"`./build.sh {config}`"
-        if readme["command"] != expected_command:
-            error(errors, f"{config}: README command is {readme['command']!r}, expected {expected_command!r}")
+        if docs["command"] != expected_command:
+            error(errors, f"{config}: docs command is {docs['command']!r}, expected {expected_command!r}")
 
 
 def validate_dts(devices: list[dict[str, str]], errors: list[str]) -> None:
@@ -245,7 +268,8 @@ def main() -> int:
 
     if devices:
         validate_defconfigs(devices, errors)
-        validate_readme(devices, errors)
+        validate_readme_links(errors)
+        validate_device_docs(devices, errors)
         validate_dts(devices, errors)
 
     if errors:

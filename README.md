@@ -1,158 +1,95 @@
-# ResQBoot 说明
+# ResQBoot
 
-## 项目简介
+ResQBoot is a custom U-Boot recovery build for Qualcomm IPQ devices, based on QSDK 12.5.
 
-高通IPQ系列定制U-Boot，源自开源的QSDK 12.5。支持以下功能：
+It focuses on web recovery and maintenance workflows for supported IPQ routers and CPE devices.
 
-- 集成U-Boot的webfailsafe模式
-- 集成DHCP服务
-- 集成Web页面修改环境变量
-- 支持U-Boot更新、固件更新、CDT更新、MIBIB更新、GPT更新、ART更新、initramfs启动进行调试和恢复
-- 支持在环境变量中自定义reset_key=<GPIO_NUM>，（覆盖模式）以方便在没有添加支持的设备上启用按压reset按键进入uboot的webfailsafe模式进行相应的升级操作
-  - 设置方法：①ttl下输入
-  - 'setenv reset_key x && saveenv'
-  - 设置方法：②或者环境变量页面变量名框中输入'reset_key',变量值框中输入'x'，然后点'修改变量'重启后永久生效
-  - 注：'x'为你已知的gpio值。
-- 支持在环境变量中自定义config_name=<config@xxx>，（覆盖模式）以方便夸机型，夸型号，夸固件进行测试
-  - 设置方法：①ttl下输入‘setenv config_name config@x && saveenv’
-  - 设置方法：②或者环境变量页面变量名框中输入'config_name',在变量值框中输入'config@xxx'，然后点‘修改变量’重启后永久生效
-  - 取消覆盖的变量名以及值reset_key/config_name，在ttl下输入'setenv reset_key''saveenv' / 'setenv config_name''saveenv'重启即调用dtb中的默认条目
+## Quick Links
 
-## 系统要求
+- [Download the latest Release](https://github.com/osGex0o0II/ResQBoot/releases/latest)
+- [Supported devices and Release asset names](docs/devices.md)
+- [Build from source](docs/build.md)
+- [Web recovery and network access](docs/recovery.md)
+- [Original project](https://github.com/1715173329/IPQ_UBOOT)
 
-- Ubuntu 20.04 LTS 或更高版本
-- 现代浏览器（用于访问Webfailsafe界面）
-  - 为优化web页面占用大小以及降低对设备资源的使用，HTTP页面采用zopfli的极限压缩gz格式
-  - 推荐浏览器：Chrome 60+、Firefox 55+、Safari 11+、Edge 15+
-  - 部分旧版浏览器可能无法正确处理并显示压缩的页面内容，不兼容IE浏览器，请使用支持gzip自解压缩的最新版本的现代浏览器
+## Features
 
-## 依赖要求
+- Web failsafe recovery page in U-Boot.
+- Built-in DHCP server for recovery access.
+- Web UI for editing U-Boot environment variables.
+- Upgrade and recovery flows for U-Boot, firmware, CDT, MIBIB, GPT, ART and initramfs images.
+- Optional `reset_key=<GPIO_NUM>` override for devices without a built-in reset key definition.
+- Optional `config_name=<config@xxx>` override for cross-model testing.
 
-首次构建前，请安装以下依赖(Python3/2.7 自适应，默认推荐安装Python3)
+## Downloading Firmware
 
-```bash
-sudo apt-get update
-sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev python3 wget cpio flex bison bc rsync nodejs npm gzip zopfli device-tree-compiler
+Release assets use short searchable English names:
+
+```text
+<Platform>-<Device>.ext
 ```
 
-makefsdatac脚本处理Web界面文件，需要用的Node.js工具，以及该工具的以下组件：
+Examples:
 
-```bash
-npm install -g html-minifier-terser clean-css terser
+- `IPQ6018-JDCloud-AX6600.mbn`
+- `IPQ5332-JDCloud-BE6500.mbn`
+- `IPQ40xx-Aliyun-AP4220.elf`
+
+Use `.elf` assets for `IPQ40xx` and `IPQ806x`. Use `.mbn` assets for other IPQ platforms.
+
+See [docs/devices.md](docs/devices.md) for the full mapping between device model, build config and Release asset name.
+
+## Recovery Access
+
+Default web recovery address:
+
+```text
+http://192.168.1.1/
 ```
 
-## 快速开始
+The U-Boot recovery environment uses:
+
+- Device IP: `192.168.1.1`
+- Netmask: `255.255.255.0`
+- Server IP / host side: `192.168.1.2`
+
+Connect your computer directly to the device LAN port. If DHCP does not assign an address, set your computer manually to an address such as `192.168.1.2/24`, then open `http://192.168.1.1/`.
+
+More details are in [docs/recovery.md](docs/recovery.md).
+
+## Build Preview
+
+Install dependencies and clone the toolchain first, then build a platform or a single config:
 
 ```bash
-git clone https://github.com/osGex0o0II/ResQBoot.git
-git clone https://github.com/1980490718/toolchain-arm_cortex-a7_gcc-5.2.0.git staging_dir
-cd ResQBoot
-./build.sh clean
+./build.sh ipq6018
+./build.sh ipq6018_jdcloud_ax6600
 ```
 
-### 编译命令
+Detailed setup instructions are in [docs/build.md](docs/build.md).
 
-```bash
-./build.sh [platform]     # 编译平台所有板子
-./build.sh [board]        # 构建单个板子
-./build.sh clean          # 深度清理
-./build.sh clean_all      # 仅清理输出文件
-```
+## Supported Platforms
 
-## 支持的平台以及设备型号
+| Platform | Devices |
+| --- | ---: |
+| IPQ40xx | 5 |
+| IPQ5018 | 13 |
+| IPQ5332 | 9 |
+| IPQ6018 | 14 |
+| IPQ806x | 2 |
+| IPQ807x | 5 |
+| IPQ9574 | 1 |
 
-|  平台   | 配置\_defconfig             | 实际设备型号                      |         machid         | 是否测试 | 编译命令                             |
-| :-----: | --------------------------- | :-------------------------------- | :--------------------: | :------: | ---------------------------------------- |
-| IPQ40xx | ipq40xx_aliyun_ap4220       | Aliyun AP4220                     |       0x9000010        |    ✓     | `./build.sh ipq40xx_aliyun_ap4220`       |
-| IPQ40xx | ipq40xx_standard            | QCA Standard Common               |          ---           |    ✓     | `./build.sh ipq40xx_standard`            |
-| IPQ40xx | ipq40xx_p2w_r619ac          | P&W R619AC                        |       0x8010006        |    ✓     | `./build.sh ipq40xx_p2w_r619ac`          |
-| IPQ40xx | ipq40xx_thinkplus_fogpod800 | ThinkPlus FogPod800               |       0x8010100        |    ✓     | `./build.sh ipq40xx_thinkplus_fogpod800` |
-| IPQ40xx | ipq40xx                     | QCA Common                        |          ---           |    ✓     | `./build.sh ipq40xx`                     |
-| IPQ5018 | ipq5018_ctcc_ap301_l        | CTCC AP301-L                      |       0x8040002        |    ✓     | `./build.sh ipq5018_ctcc_ap301_l`        |
-| IPQ5018 | ipq5018_cmcc_rax3000q       | CMCC RAX3000Q                     |       0x8040000        |    ×     | `./build.sh ipq5018_cmcc_rax3000q`       |
-| IPQ5018 | ipq5018_cucc_vs010          | CUCC VS010                        |       0x8040000        |    ✓     | `./build.sh ipq5018_cucc_vs010`          |
-| IPQ5018 | ipq5018_gl_b3000            | GL.iNet GL-B3000                  |       0x8040004        |    ×     | `./build.sh ipq5018_gl_b3000`            |
-| IPQ5018 | ipq5018_jdcloud_ax3000      | JDCloud AX3000 (RE-OS-03U)        |       0x8040104        |    ✓     | `./build.sh ipq5018_jdcloud_ax3000`      |
-| IPQ5018 | ipq5018_mr3000d_04          | CMCC MR3000D-04                   |       0x8040702        |    ✓     | `./build.sh ipq5018_mr3000d_04`          |
-| IPQ5018 | ipq5018_mr3000d_ci          | CMCC MR3000D-CI                   |       0x8040802        |    ✓     | `./build.sh ipq5018_mr3000d_ci`          |
-| IPQ5018 | ipq5018_pz_l8               | CMCC PZ-L8                        |       0x8040000        |    ×     | `./build.sh ipq5018_pz_l8`               |
-| IPQ5018 | ipq5018_ruijie_ma3063       | Ruijie RG-MA3063                  | 0x8040000<br>0x8040004 |    ×     | `./build.sh ipq5018_ruijie_ma3063`       |
-| IPQ5018 | ipq5018_skspruce_ap8330c    | SKSPRUCE AP8330C                  |       0x8040202        |    ✓     | `./build.sh ipq5018_skspruce_ap8330c`    |
-| IPQ5018 | ipq5018_tiny                | QCA Tiny Common                   |          ---           |    ✓     | `./build.sh ipq5018_tiny`                |
-| IPQ5018 | ipq5018_tiny_debug          | QCA Tiny Debug Common             |          ---           |    ✓     | `./build.sh ipq5018_tiny_debug`          |
-| IPQ5018 | ipq5018                     | QCA Standard Common               |          ---           |    ✓     | `./build.sh ipq5018`                     |
-| IPQ5332 | ipq5332_h3c_ne36pro         | H3C NE36PRO                       |       0x8060004        |    ✓     | `./build.sh ipq5332_h3c_ne36pro`         |
-| IPQ5332 | ipq5332_jdcloud_be6500      | JDCloud BE6500 (JDBox RE-CS-06)   |       0x8060000        |    ✓     | `./build.sh ipq5332_jdcloud_be6500`      |
-| IPQ5332 | ipq5332_xiaomi_be306        | Xiaomi BE306                      |       0x8060004        |    ×     | `./build.sh ipq5332_xiaomi_be306`        |
-| IPQ5332 | ipq5332_xiaomi_be6500       | Xiaomi BE6500 (RN02)              |       0x8060001        |    ✓     | `./build.sh ipq5332_xiaomi_be6500`       |
-| IPQ5332 | ipq5332_tiny                | QCA Tiny Common                   |          ---           |    ✓     | `./build.sh ipq5332_tiny`                |
-| IPQ5332 | ipq5332_tiny_nor            | QCA Tiny NOR Common               |          ---           |    ✓     | `./build.sh ipq5332_tiny_nor`            |
-| IPQ5332 | ipq5332_tiny_debug          | QCA Tiny Debug Common             |          ---           |    ✓     | `./build.sh ipq5332_tiny_debug`          |
-| IPQ5332 | ipq5332_tiny2               | QCA Tiny2 Common                  |          ---           |    ✓     | `./build.sh ipq5332_tiny2`               |
-| IPQ5332 | ipq5332                     | QCA Standard Common               |          ---           |    ✓     | `./build.sh ipq5332`                     |
-| IPQ6018 | ipq6018_360v6               | Qihoo 360 V6                      |       0x8030200        |    ✓     | `./build.sh ipq6018_360v6`               |
-| IPQ6018 | ipq6018_ax1800pro           | JDCloud AX1800Pro                 |       0x8030201        |    ✓     | `./build.sh ipq6018_ax1800pro`           |
-| IPQ6018 | ipq6018_ax5_jdcloud         | JDCloud AX5                       |       0x8030200        |    ✓     | `./build.sh ipq6018_ax5_jdcloud`         |
-| IPQ6018 | ipq6018_dptech_ap3000_2c    | DPtech AP3000-2C                  |       0x8030200        |    ✓     | `./build.sh ipq6018_dptech_ap3000_2c`    |
-| IPQ6018 | ipq6018_gl_axt1800          | GL.iNet GL-AXT1800 / GL-AX1800    |       0x8030200        |    ✓     | `./build.sh ipq6018_gl_axt1800`          |
-| IPQ6018 | ipq6018_philips_ly1800      | Philips LY1800 / SY Y6010         |       0x8030000        |    ✓     | `./build.sh ipq6018_philips_ly1800`      |
-| IPQ6018 | ipq6018_jdcloud_ax6600      | JDCloud AX6600                    |       0x8030202        |    ✓     | `./build.sh ipq6018_jdcloud_ax6600`      |
-| IPQ6018 | ipq6018_jdcloud_er1         | JDCloud ER1                       |       0x8030203        |    ✓     | `./build.sh ipq6018_jdcloud_er1`         |
-| IPQ6018 | ipq6018_m2                  | ZN M2 / CMIOT AX18                |       0x8030200        |    ✓     | `./build.sh ipq6018_m2`                  |
-| IPQ6018 | ipq6018_nn6000              | Link NN6000                       |       0x8030200        |    ✓     | `./build.sh ipq6018_nn6000`              |
-| IPQ6018 | ipq6018_xiaomi_ax1800       | Xiaomi AX1800                     |       0x8030200        |    ✓     | `./build.sh ipq6018_xiaomi_ax1800`       |
-| IPQ6018 | ipq6018_tiny                | QCA Tiny Common                   |          ---           |    ✓     | `./build.sh ipq6018_tiny`                |
-| IPQ6018 | ipq6018                     | QCA Common                        |          ---           |    ✓     | `./build.sh ipq6018`                     |
-| IPQ6018 | ipq6018_zxelink_w212x       | ZXeLink ZXWL W212X                |       0x8030200        |    ✓     | `./build.sh ipq6018_zxelink_w212x`       |
-| IPQ806x | ipq806x_standard            | QCA Standard Common               |          ---           |    ?     | `./build.sh ipq806x_standard`            |
-| IPQ806x | ipq806x                     | QCA Common                        |          ---           |    ?     | `./build.sh ipq806x`                     |
-| IPQ807x | ipq807x_aliyun_ap8220       | Aliyun AP8220                     |       0x0801000A       |    ✓     | `./build.sh ipq807x_aliyun_ap8220`       |
-| IPQ807x | ipq807x_redmi_ax6           | Redmi AX6 / Xiaomi AX3600         |       0x08010010       |    ✓     | `./build.sh ipq807x_redmi_ax6`           |
-| IPQ807x | ipq807x_tiny                | QCA Tiny Common                   |          ---           |    ✓     | `./build.sh ipq807x_tiny`                |
-| IPQ807x | ipq807x_xglink_5gcpe        | XGlink 5GCPE                      |       0x08010008       |    ✓     | `./build.sh ipq807x_xglink_5gcpe`        |
-| IPQ807x | ipq807x                     | QCA Common                        |          ---           |    ✓     | `./build.sh ipq807x`                     |
-| IPQ9574 | ipq9574                     | QCA Common                        |          ---           |    ?     | `./build.sh ipq9574`                     |
+The complete device index is maintained in [docs/devices.csv](docs/devices.csv) and rendered in [docs/devices.md](docs/devices.md).
 
-> **编译说明**：所有配置的编译命令格式均为 `./build.sh <配置_defconfig>`，其中 `<配置_defconfig>` 为表格第二列中对应的配置名称。
+## License
 
-### 示例
+This project is licensed under GPLv2. See [LICENSE](LICENSE) for details.
 
-```bash
-./build.sh ipq807x              # 构建IPQ807x全系
-./build.sh ipq807x_tiny         # 构建单个板子
-./build.sh ipq6018_xiaomi_ax1800 # 小米AX1800
-```
+Any borrowed, forked or redistributed work must retain the original copyright notices, license notices and source attribution.
 
-### 输出文件
+## Disclaimer
 
-- **ipq40xx/ipq806x**: bin/\*.elf
-- **其他平台**: bin/\*.mbn
+This project is not fully tested on every listed device. Use it at your own risk.
 
-### 环境变量
-
-脚本自动设置：
-
-```bash
-ARCH=arm
-CROSS_COMPILE=arm-openwrt-linux-
-STAGING_DIR=../staging_dir/
-```
-
-### 报错处理
-
-- httpd/fs.c:54:20: fatal error: fsdata.c": No such fil or directory 请检查是否安装了NodeJS,以及Node的子模块：html-minifier-terser clean-css terser
-
-### 许可证
-
-- 本项目使用 GPLv2 开源。
-- 详细条款请查看项目根目录下的 LICENSE 文件
-- 复制、分发、展示本代码
-- 修改本代码并分发修改后的版本
-- 将本代码用于商业用途，包括销售、出租等
-- 任何借鉴、复刻、二次开发本代码的行为、必须注明出处并同样以 GPLv2 开源以及保留原始版权声明和许可证声明
-
-### 免责声明
-
-- 本项目未经充分测试，使用风险自负。
-- 作者及本项目源码不承担任何因直接间接使用本代码而产生的损失或损害责任，包括但不限于硬件损坏、数据丢失、设备故障等。
-- 本项目仅供学习和研究使用，禁止用于任何侵犯他人利益的用途。
+The author and contributors are not responsible for hardware damage, data loss, device failure or other direct or indirect damage caused by use of this code or generated firmware.
