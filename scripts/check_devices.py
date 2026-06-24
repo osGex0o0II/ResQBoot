@@ -19,10 +19,21 @@ TESTED_TO_README = {
     "no": "×",
     "unknown": "?",
 }
+RELEASE_ELF_PLATFORMS = {"IPQ40xx", "IPQ806x"}
+RELEASE_SLUG_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$")
+ASCII_NAME_COLUMNS = ("device_name", "readme_name", "display_name", "aliases", "release_slug")
 
 
 def error(errors: list[str], message: str) -> None:
     errors.append(message)
+
+
+def release_extension(platform: str) -> str:
+    return "elf" if platform in RELEASE_ELF_PLATFORMS else "mbn"
+
+
+def release_asset_name(row: dict[str, str]) -> str:
+    return f"{row.get('platform', '')}-{row.get('release_slug', '')}.{release_extension(row.get('platform', ''))}"
 
 
 def read_devices(errors: list[str]) -> list[dict[str, str]]:
@@ -39,6 +50,7 @@ def read_devices(errors: list[str]) -> list[dict[str, str]]:
         "device_name",
         "readme_name",
         "display_name",
+        "release_slug",
         "machid",
         "tested",
         "dts",
@@ -56,9 +68,31 @@ def read_devices(errors: list[str]) -> list[dict[str, str]]:
             error(errors, f"Duplicate devices.csv config: {config}")
         seen.add(config)
 
+        for column in ASCII_NAME_COLUMNS:
+            value = row.get(column, "")
+            if value and not value.isascii():
+                error(errors, f"{config}: {column} must use ASCII/English text for README and release search")
+
+        release_slug = row.get("release_slug", "")
+        if not release_slug:
+            error(errors, f"{config}: release_slug is required")
+        elif not RELEASE_SLUG_RE.fullmatch(release_slug):
+            error(errors, f"{config}: release_slug {release_slug!r} must use letters, numbers and hyphens only")
+
         tested = row.get("tested", "")
         if tested not in TESTED_TO_README:
             error(errors, f"{config}: tested must be one of {', '.join(TESTED_TO_README)}")
+
+    release_assets: dict[str, str] = {}
+    for row in rows:
+        config = row.get("config", "")
+        if not config or not row.get("release_slug"):
+            continue
+        asset = release_asset_name(row)
+        previous = release_assets.get(asset)
+        if previous:
+            error(errors, f"{config}: release asset {asset} duplicates {previous}")
+        release_assets[asset] = config
 
     return rows
 

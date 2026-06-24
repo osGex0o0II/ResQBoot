@@ -137,6 +137,9 @@ jobs:
           echo "BUILD_TIME=$(date '+%H:%M:%S')" >> $GITHUB_ENV
           echo "FULL_BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
 
+      - name: Prepare release assets
+        run: python3 scripts/prepare_release_assets.py --artifacts-dir artifacts --output-dir release-assets --body release-notes.md
+
       - name: Check and delete all published content on Releases page
         run: |
           echo "Check Releases page today (${{ env.TODAY }})..."
@@ -178,11 +181,8 @@ jobs:
         with:
           tag_name: v${{ env.TODAY }}
           name: v${{ env.TODAY }}
-          body: |
-            Compiled U-Boot IPQ platforms:
-            Build Time：${{ env.FULL_BUILD_TIME }} ${{ env.TZ }}
-            Types：ipq40xx、ipq5018、ipq5332、ipq6018、ipq806x、ipq807x、ipq9574
-          files: artifacts/*
+          body_path: release-notes.md
+          files: release-assets/*
           draft: false
           prerelease: false
         env:
