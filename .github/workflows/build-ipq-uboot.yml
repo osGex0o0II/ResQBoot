@@ -140,38 +140,18 @@ jobs:
       - name: Prepare release assets
         run: python3 scripts/prepare_release_assets.py --artifacts-dir artifacts --output-dir release-assets --body release-notes.md
 
-      - name: Check and delete all published content on Releases page
+      - name: Delete existing release for current tag
         run: |
-          echo "Check Releases page today (${{ env.TODAY }})..."
+          TARGET_TAG="v${{ env.TODAY }}"
+          echo "Check Release tag: $TARGET_TAG"
           echo "Current time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 
-          # Calculate today's 00:00:00 and 23:59:59 timestamps (UTC)
-          TODAY_START="${{ env.TODAY }} 00:00:00"
-          TODAY_END="${{ env.TODAY }} 23:59:59"
-          echo "Today's time range: $TODAY_START - $TODAY_END"
-
-          # View all releases for debugging
-          echo "All Releases list:"
-          gh release list --limit 10
-
-          # Get JSON formatted releases data
-          RELEASE_JSON=$(gh release list --limit 100 --json tagName,createdAt)
-          echo "JSON output (first 1000 characters):"
-          echo "$RELEASE_JSON" | head -c 1000
-
-          # Filter today's releases between today's start and end timestamps
-          echo "Filter today's Releases:"
-          # Use startswith to match date
-          TODAY_TAGS=$(echo "$RELEASE_JSON" | jq -r --arg date "${{ env.TODAY }}" '.[] | select(.createdAt | startswith($date)) | .tagName')
-          echo "Today's Tags: $TODAY_TAGS"
-
-          if [ -n "$TODAY_TAGS" ]; then
-            echo "Found published Releases today, deleting all..."
-            echo "$TODAY_TAGS"
-            echo "$TODAY_TAGS" | xargs -I {} gh release delete {} --yes --cleanup-tag
-            echo "All today's Releases deleted completed!"
+          if gh release view "$TARGET_TAG" >/dev/null 2>&1; then
+            echo "Found existing Release $TARGET_TAG, deleting it before publishing fresh assets..."
+            gh release delete "$TARGET_TAG" --yes --cleanup-tag
+            echo "Release $TARGET_TAG deleted."
           else
-            echo "Releases page today is empty"
+            echo "Release $TARGET_TAG does not exist."
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -183,6 +163,8 @@ jobs:
           name: v${{ env.TODAY }}
           body_path: release-notes.md
           files: release-assets/*
+          fail_on_unmatched_files: true
+          overwrite_files: true
           draft: false
           prerelease: false
         env:
