@@ -1259,7 +1259,7 @@ static void httpd_handle_partitions(struct failsafe_httpd_state *hs) {
 static u64 backup_flash_capacity(const char *part_name, int raw)
 {
 	u64 capacity = 0;
-	int flash_type;
+	uint32_t flash_type;
 
 	get_current_flash_type(&flash_type);
 

@@ -7,7 +7,6 @@
 #include <common.h>
 #include <command.h>
 #include <net.h>
-#include <linux/ctype.h>
 #include <asm/byteorder.h>
 #include "httpd.h"
 #include "../failsafe/failsafe_httpd.h"
@@ -61,7 +60,7 @@ static int httpd_parse_ipv4(const char *ipaddr, unsigned int octets[4],
 		return -1;
 
 	for (i = 0; i < 4; i++) {
-		if (!isdigit((unsigned char)*p))
+		if (*p < '0' || *p > '9')
 			return -1;
 
 		val = simple_strtoul(p, &end, 10);

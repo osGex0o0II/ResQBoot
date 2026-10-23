@@ -16,7 +16,7 @@ sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-
 安装 `makefsdatac` 处理 Web 页面时需要的压缩工具：
 
 ```bash
-sudo npm install -g html-minifier-terser clean-css terser
+sudo npm install -g html-minifier-terser clean-css terser svgo
 ```
 
 ## 源码和工具链
@@ -77,13 +77,13 @@ CI 会将 Release 资产重命名为 [devices.md](devices.md) 中展示的短英
 如果出现类似错误：
 
 ```text
-httpd/fs.c:54:20: fatal error: fsdata.c: No such file or directory
+failsafe/fsdata.c: No such file or directory
 ```
 
 请检查是否已经安装 Node.js 以及以下 npm 包：
 
 ```bash
-html-minifier-terser clean-css terser
+html-minifier-terser clean-css terser svgo
 ```
 
 ## CI 构建
