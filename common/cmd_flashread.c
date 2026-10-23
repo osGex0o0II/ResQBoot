@@ -175,6 +175,9 @@ int flashread_partition(const char *part_name, u32 load_addr, u32 user_size, int
 			read_size = (u32)raw_total;
 			if (user_size && user_size < read_size)
 				read_size = user_size;
+			read_size -= read_size % raw_page;
+			if (!read_size)
+				return CMD_RET_FAILURE;
 #else
 			return CMD_RET_FAILURE;
 #endif

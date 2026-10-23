@@ -133,7 +133,6 @@ static void flashread_yield(void) {
 	 * Only yield the CPU/watchdog; receive processing resumes when the
 	 * callback returns to failsafe_httpd_poll().
 	 */
-	WATCHDOG_RESET();
 	mdelay(1);
 }
 
