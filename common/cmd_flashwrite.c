@@ -189,6 +189,12 @@ static int gpt_convert_and_write(block_dev_desc_t *blk_dev, const char *part_nam
 		return -1;
 	}
 
+	if ((uint64_t)file_size <
+	    (uint64_t)(is_src_primary ? GPT_PRIMARY_SIZE : GPT_BACKUP_SIZE) * blksz) {
+		printf("GPT: uploaded GPT region is incomplete\n");
+		return -1;
+	}
+
 	gpt_h = (gpt_header *)(is_src_primary ? src + blksz : src + (file_size - blksz));
 
 	if (gpt_verify_header_crc((uint8_t *)gpt_h, blksz) != 0) {
@@ -250,11 +256,6 @@ static int gpt_convert_and_write(block_dev_desc_t *blk_dev, const char *part_nam
 
 		unsigned long write_lba = is_dst_primary ? 0UL : (unsigned long)(lba - GPT_BACKUP_SIZE);
 		unsigned int write_size = is_dst_primary ? GPT_PRIMARY_SIZE : GPT_BACKUP_SIZE;
-
-		if ((uint64_t)file_size < (uint64_t)write_size * blksz) {
-			printf("GPT: uploaded GPT region is incomplete\n");
-			return -1;
-		}
 
 		return (write_to_flash(SMEM_BOOT_MMC_FLASH, load_addr, (uint32_t)write_lba, write_size, write_size, "default") == CMD_RET_SUCCESS) ? 1 : -1;
 	}

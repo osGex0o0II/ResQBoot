@@ -1272,18 +1272,45 @@ static u64 backup_flash_capacity(const char *part_name, int raw)
 #else
 		int nd = CONFIG_NAND_FLASH_INFO_IDX;
 #endif
-		if (nd >= 0 && nand_info[nd].size > 0) {
-			capacity = nand_info[nd].size;
-			if (raw && nand_info[nd].writesize > 0)
-				capacity = capacity / nand_info[nd].writesize *
-					(nand_info[nd].writesize + nand_info[nd].oobsize);
+		if (!strcmp(part_name, "nand_full")) {
+			if (nd >= 0 && nand_info[nd].size > 0) {
+				capacity = nand_info[nd].size;
+				if (raw && nand_info[nd].writesize > 0)
+					capacity = capacity / nand_info[nd].writesize *
+						(nand_info[nd].writesize + nand_info[nd].oobsize);
+			}
+			return capacity;
 		}
+
+		{
+			u32 offset, part_size;
+
+			if (getpart_offset_size((char *)part_name, &offset, &part_size) == 0 &&
+			    part_size)
+				return part_size;
+		}
+
+		if (nd >= 0 && nand_info[nd].size > 0)
+			capacity = nand_info[nd].size;
 		return capacity;
 	}
 #endif
 
-	if (!strcmp(part_name, "nor_full") || flash_type == SMEM_BOOT_SPI_FLASH)
+	if (!strcmp(part_name, "nor_full"))
 		return get_spi_flash_size();
+
+	if (flash_type == SMEM_BOOT_SPI_FLASH) {
+#ifdef CONFIG_CMD_NAND
+		if (get_which_flash_param((char *)part_name) > 0) {
+			u32 offset, part_size;
+
+			if (getpart_offset_size((char *)part_name, &offset, &part_size) == 0 &&
+			    part_size)
+				return part_size;
+		}
+#endif
+		return get_spi_flash_size();
+	}
 
 #ifdef CONFIG_QCA_MMC
 	if (flash_type == SMEM_BOOT_MMC_FLASH || flash_type == SMEM_BOOT_NO_FLASH) {
