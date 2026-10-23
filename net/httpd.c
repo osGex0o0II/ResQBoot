@@ -259,8 +259,11 @@ static int do_firmware_upgrade(const ulong size) {
 				u64 hlos_size = get_hlos_size();
 				u64 rootfs_size = get_rootfs_size();
 				u64 actual_rootfs_size = (size > actual_hlos_size) ? (size - actual_hlos_size) : 0;
-				if(actual_hlos_size > hlos_size && hlos_size > 0) actual_hlos_size = hlos_size;
-				if(actual_rootfs_size > rootfs_size && rootfs_size > 0) actual_rootfs_size = rootfs_size;
+				if ((hlos_size > 0 && actual_hlos_size > hlos_size) ||
+				    (rootfs_size > 0 && actual_rootfs_size > rootfs_size)) {
+					printf("FIT component exceeds target partition\n");
+					return -1;
+				}
 				if(actual_hlos_size == 0 && actual_rootfs_size == 0) {
 					printf("Error: Both HLOS and rootfs partition sizes are zero\n");
 					return -1;
@@ -297,7 +300,11 @@ static int do_firmware_upgrade(const ulong size) {
 				u64 rootfs_size = get_rootfs_size();
 				u64 actual_kernel_size = parts.kernel_size;
 				u64 actual_rootfs_size = parts.rootfs_size;
-				if ((hlos_size > 0 && actual_kernel_size > hlos_size) ||
+				if (hlos_size == 0 || rootfs_size == 0) {
+					printf("SYSUPGRADE target partition size unknown\n");
+					return -1;
+				}
+				if ((actual_kernel_size > hlos_size) ||
 				    (rootfs_size > 0 && actual_rootfs_size > rootfs_size)) {
 					printf("SYSUPGRADE component exceeds target partition\n");
 					return -1;
@@ -581,13 +588,37 @@ static int do_img_upgrade(const ulong size) {
 			nand_dev = CONFIG_NAND_FLASH_INFO_IDX;
 #endif
 			print_upgrade_warning(raw ? "NAND (raw)" : "NAND");
+			if (nand_dev < 0) {
+				printf("NAND device unavailable\n");
+				return -1;
+			}
 #ifdef CONFIG_CMD_NAND
 			if (raw) {
-				ulong pagecount = nand_info[nand_dev].size / nand_info[nand_dev].writesize;
+				u32 writesize = nand_info[nand_dev].writesize;
+				u32 oobsize = nand_info[nand_dev].oobsize;
+				u32 raw_page = writesize + oobsize;
+				u64 raw_total = writesize ?
+					(u64)nand_info[nand_dev].size / writesize * raw_page : 0;
+				ulong pagecount;
+
+				if (!writesize || !oobsize || !raw_total ||
+				    raw_total > 0xFFFFFFFFULL ||
+				    (u64)size != raw_total) {
+					printf("Raw NAND image size mismatch: upload %lu, expected %llu\n",
+					       size, raw_total);
+					return -1;
+				}
+				pagecount = size / raw_page;
 				sprintf(buf, "nand device %d && nand erase.chip && nand write.raw 0x%lx 0x0 %lx", nand_dev, UPLOAD_ADDR, pagecount);
 			} else
 #endif
 			{
+#ifdef CONFIG_CMD_NAND
+				if ((u64)size > (u64)nand_info[nand_dev].size) {
+					printf("NAND image exceeds device size\n");
+					return -1;
+				}
+#endif
 				sprintf(buf, "nand device %d && nand erase.chip && nand write 0x%lx 0x0 0x%lx", nand_dev, UPLOAD_ADDR, size);
 			}
 			break;

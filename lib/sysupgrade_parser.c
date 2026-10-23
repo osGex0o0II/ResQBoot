@@ -10,11 +10,23 @@
 #include <../board/qca/arm/common/fdt_info.h>
 #endif
 
-static unsigned long tar_parse_size(const char *s, int len) {
-	unsigned long val = 0;
-	int i;
-	for (i = 0; i < len && s[i] >= '0' && s[i] <= '7'; i++)
+static u64 tar_parse_size(const char *s, int len) {
+	u64 val = 0;
+	int i, seen = 0;
+
+	for (i = 0; i < len; i++) {
+		if (s[i] == ' ' || s[i] == '\0') {
+			if (seen)
+				break;
+			continue;
+		}
+		if (s[i] < '0' || s[i] > '7')
+			return 0xFFFFFFFFFFFFFFFFULL;
+		if (val > (0xFFFFFFFFFFFFFFFFULL - 7) / 8)
+			return 0xFFFFFFFFFFFFFFFFULL;
 		val = val * 8 + (s[i] - '0');
+		seen = 1;
+	}
 	return val;
 }
 
@@ -34,7 +46,7 @@ static sysupgrade_fw_parts parse_sysupgrade(void *address, size_t size) {
 	uintptr_t base = (uintptr_t)address, pos, data, end;
 	int header_off, max_entries = 32, entry, i, j;
 	char *hdr;
-	unsigned long fsize, padded;
+	u64 fsize, padded;
 	const uint32_t MAGIC_HSQS = 0x73717368;
 	uint8_t *sb;
 	u64 bytes_used;
@@ -60,10 +72,10 @@ static sysupgrade_fw_parts parse_sysupgrade(void *address, size_t size) {
 		pos = base + header_off;
 
 		for (entry = 0; entry < max_entries; entry++) {
-			if (pos > end || end - pos < 512) {
-				invalid = 1;
+			char name[101];
+
+			if (pos >= end || end - pos < 512)
 				break;
-			}
 
 			hdr = (char *)pos;
 
@@ -73,28 +85,32 @@ static sysupgrade_fw_parts parse_sysupgrade(void *address, size_t size) {
 			if (memcmp(hdr + 257, "ustar", 5) != 0)
 				break;
 
+			memcpy(name, hdr, 100);
+			name[100] = '\0';
+
 			fsize = tar_parse_size(hdr + 124, 12);
 			data = pos + 512;
-			if (data > end || fsize > (unsigned long)(end - data)) {
+			if (fsize == 0xFFFFFFFFFFFFFFFFULL ||
+			    data > end || fsize > (u64)(end - data)) {
 				invalid = 1;
 				break;
 			}
 
-			padded = (fsize + 511) & ~511UL;
-			if (padded > (unsigned long)(end - data)) {
+			padded = (fsize + 511) & ~511ULL;
+			if (padded > (u64)(end - data)) {
 				invalid = 1;
 				break;
 			}
 
-			if (fsize > 0 && !parts.kernel_data && tar_is_kernel_name(hdr)) {
+			if (fsize > 0 && !parts.kernel_data && tar_is_kernel_name(name)) {
 				parts.kernel_data = (const void *)data;
 				parts.kernel_size = fsize;
-			} else if (fsize > 0 && !parts.rootfs_data && tar_is_rootfs_name(hdr)) {
+			} else if (fsize > 0 && !parts.rootfs_data && tar_is_rootfs_name(name)) {
 				parts.rootfs_data = (const void *)data;
 				parts.rootfs_size = fsize;
 			}
 
-			pos = data + padded;
+			pos = data + (uintptr_t)padded;
 		}
 	} else {
 		for (i = header_off; (size_t)i + 4 <= size; i += 4) {
@@ -111,19 +127,19 @@ static sysupgrade_fw_parts parse_sysupgrade(void *address, size_t size) {
 				bytes_used = 0;
 				for (j = 0; j < 8; j++)
 					bytes_used |= (u64)sb[40 + j] << (j * 8);
-				if (bytes_used > 0) {
-					if (bytes_used > size - i) {
-						invalid = 1;
-						break;
-					}
-					parts.rootfs_size = (size_t)bytes_used;
+				if (bytes_used == 0 || bytes_used > size - i) {
+					invalid = 1;
+					break;
 				}
+				parts.rootfs_size = (size_t)bytes_used;
 				break;
 			}
 		}
 	}
 
-	if (invalid)
+	if (invalid ||
+	    !parts.kernel_data || !parts.kernel_size ||
+	    !parts.rootfs_data || !parts.rootfs_size)
 		memset(&parts, 0, sizeof(parts));
 
 	sysupgrade_parts_valid(&parts) ?
@@ -197,6 +213,8 @@ static int ubi_write_volume(const char *name, const void *data, size_t size, int
 }
 
 int sysupgrade_write_ubi_volumes(sysupgrade_fw_parts *parts, int backup_enabled) {
+	int ret = 0;
+
 	if (sysupgrade_ubi_init() != 0) {
 		printf("UBI init failed\n");
 		return -1;
@@ -215,27 +233,37 @@ int sysupgrade_write_ubi_volumes(sysupgrade_fw_parts *parts, int backup_enabled)
 		printf("rootfs_data absent, recreating\n");
 
 	if (parts->kernel_data && parts->kernel_size > 0 &&
-	    ubi_write_volume("kernel", parts->kernel_data, parts->kernel_size, 1) != 0)
-		return -1;
+	    ubi_write_volume("kernel", parts->kernel_data, parts->kernel_size, 1) != 0) {
+		ret = -1;
+		goto restore_config;
+	}
 
 	if (parts->rootfs_data && parts->rootfs_size > 0 &&
-	    ubi_write_volume("rootfs", parts->rootfs_data, parts->rootfs_size, 1) != 0)
-		return -1;
+	    ubi_write_volume("rootfs", parts->rootfs_data, parts->rootfs_size, 1) != 0) {
+		ret = -1;
+		goto restore_config;
+	}
 
 	if (backup_enabled) {
+		/* Backup volumes are optional; never fail a good primary update. */
 		if (parts->kernel_data && parts->kernel_size > 0 &&
-		    ubi_write_volume("kernel_1", parts->kernel_data, parts->kernel_size, 1) != 0)
-			return -1;
+		    ubi_write_volume("kernel_1", parts->kernel_data, parts->kernel_size, 0) != 0)
+			printf("kernel_1 not updated\n");
 		if (parts->rootfs_data && parts->rootfs_size > 0 &&
-		    ubi_write_volume("rootfs_1", parts->rootfs_data, parts->rootfs_size, 1) != 0)
-			return -1;
+		    ubi_write_volume("rootfs_1", parts->rootfs_data, parts->rootfs_size, 0) != 0)
+			printf("rootfs_1 not updated\n");
 	}
 
-	if (run_command("ubi create rootfs_data", 0) != 0) {
-		printf("rootfs_data recreate failed\n");
-		return -1;
-	}
+restore_config:
+	/*
+	 * The user chose to clear configuration on upgrade. Recreate the
+	 * volume on every exit path so a failure does not leave it missing.
+	 * A full UBI may reject the create; the new system can recreate it
+	 * on first boot, so this is a warning rather than an upgrade failure.
+	 */
+	if (run_command("ubi create rootfs_data", 0) != 0)
+		printf("rootfs_data recreate failed (will be created on boot)\n");
 
-	return 0;
+	return ret;
 }
 #endif

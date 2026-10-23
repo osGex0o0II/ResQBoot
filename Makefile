@@ -573,19 +573,19 @@ KBUILD_CFLAGS += -DBUILD_TAG='"$(BUILD_TAG)"'
 endif
 
 ifdef CONFIG_ARCH_IPQ807x
-KBUILD_CFLAGS += $(call cc-option,-fno-stack-protector)
+KBUILD_CFLAGS += $(call cc-option,-fstack-protector)
 else
 ifdef CONFIG_ARCH_IPQ5018
-KBUILD_CFLAGS += $(call cc-option,-fno-stack-protector)
+KBUILD_CFLAGS += $(call cc-option,-fstack-protector)
 else
 ifdef CONFIG_ARCH_IPQ5332
-KBUILD_CFLAGS += $(call cc-option,-fno-stack-protector)
+KBUILD_CFLAGS += $(call cc-option,-fstack-protector)
 else
 ifdef CONFIG_ARCH_IPQ6018
-KBUILD_CFLAGS += $(call cc-option,-fno-stack-protector)
+KBUILD_CFLAGS += $(call cc-option,-fstack-protector)
 else
 ifdef CONFIG_ARCH_IPQ9574
-KBUILD_CFLAGS += $(call cc-option,-fno-stack-protector)
+KBUILD_CFLAGS += $(call cc-option,-fstack-protector)
 else
 KBUILD_CFLAGS += $(call cc-option, -fno-stack-protector)
 endif
@@ -1403,7 +1403,7 @@ $(timestamp_h): $(srctree)/Makefile FORCE
 	[ -n "$$device_name" ] || device_name="Unknown Device"; \
 	footer_text="$$device_name | Version: ResQBoot g$$build_hash ($$build_date)"; \
 	footer_text="$$footer_text" $(PERL) -0pi -e '$$footer = $$ENV{footer_text}; $$footer =~ s/&/&amp;/g; $$footer =~ s/</&lt;/g; $$footer =~ s/>/&gt;/g; $$footer =~ s/"/&quot;/g; $$footer =~ s/\x27/&#39;/g; s#<span id="footer-text">[^<]*</span>#<span id="footer-text">$$footer</span>#g' $(CURDIR)/failsafe/html/pig/*.html
-	cd $(srctree)/failsafe; ./html/makefsdatac; cd -
+	cd $(srctree)/failsafe && ./html/makefsdatac
 #endif
 
 # ---------------------------------------------------------------------------
@@ -1516,7 +1516,7 @@ CLEAN_DIRS  += $(MODVERDIR) \
 			$(filter-out include, $(shell ls -1 $d 2>/dev/null))))
 
 CLEAN_FILES += include/bmp_logo.h include/bmp_logo_data.h \
-	       boot* u-boot* MLO* SPL System.map
+	       boot* u-boot* MLO* SPL System.map failsafe/fsdata.c
 
 # Directories & files removed with 'make mrproper'
 MRPROPER_DIRS  += include/config include/generated spl tpl \

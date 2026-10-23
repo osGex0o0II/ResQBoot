@@ -37,12 +37,22 @@ static bool dhcpd_mac_equal(const uint8_t *a, const uint8_t *b) {
 	return memcmp(a, b, 6) == 0;
 }
 
+static void dhcpd_expire_leases(void) {
+	for (int i = 0; i < MAX_LEASES; i++) {
+		if (dhcpd_leases[i].used &&
+		    dhcpd_leases[i].lease_time &&
+		    get_timer(dhcpd_leases[i].lease_start) > dhcpd_leases[i].lease_time)
+			dhcpd_leases[i].used = false;
+	}
+}
+
 /**
  * dhcpd_find_lease - Find DHCP lease by MAC address
  * @mac: Client MAC address to search for
  * Return: Pointer to lease if found, NULL otherwise
  */
 static struct dhcpd_lease *dhcpd_find_lease(const uint8_t *mac) {
+	dhcpd_expire_leases();
 	for (int i = 0; i < MAX_LEASES; i++) {
 		if (dhcpd_leases[i].used && dhcpd_mac_equal(dhcpd_leases[i].mac_addr, mac))
 			return &dhcpd_leases[i];
@@ -67,6 +77,7 @@ static bool dhcpd_ip_in_pool(uint32_t ip_host) {
  * Return: true if IP is already allocated
  */
 static bool dhcpd_ip_is_allocated(uint32_t ip_host) {
+	dhcpd_expire_leases();
 	for (int i = 0; i < MAX_LEASES; i++) {
 		if (dhcpd_leases[i].used && dhcpd_leases[i].ip_addr.s_addr == htonl(ip_host)) {
 			return true;
@@ -82,6 +93,7 @@ static bool dhcpd_ip_is_allocated(uint32_t ip_host) {
  * Return: true if IP is allocated to this specific MAC
  */
 static bool dhcpd_ip_allocated_to_mac(uint32_t ip_host, const uint8_t *mac) {
+	dhcpd_expire_leases();
 	for (int i = 0; i < MAX_LEASES; i++) {
 		if (dhcpd_leases[i].used && dhcpd_leases[i].ip_addr.s_addr == htonl(ip_host) && dhcpd_mac_equal(dhcpd_leases[i].mac_addr, mac)) {
 			return true;
@@ -133,6 +145,7 @@ static int dhcpd_create_lease(const uint8_t *mac, struct in_addr ip, int index) 
  * Return: Index of available slot, or -1 if no slots available
  */
 static int dhcpd_get_available_lease_slot(void) {
+	dhcpd_expire_leases();
 	for (int i = 0; i < MAX_LEASES; i++) {
 		if (!dhcpd_leases[i].used) {
 			return i;

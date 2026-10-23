@@ -82,8 +82,14 @@ static int read_from_flash(int flash_type, u32 address, u32 offset, u32 part_siz
 
 #ifdef CONFIG_CMD_NAND
 		if (raw) {
-			ulong pagecount = nand_info[nand_dev].size / nand_info[nand_dev].writesize;
-			snprintf(runcmd + runcmd_len, sizeof(runcmd) - runcmd_len, "nand read.raw 0x%x 0x%x %lx", address, offset, pagecount);
+			u32 writesize = nand_info[nand_dev].writesize;
+			u32 oobsize = nand_info[nand_dev].oobsize;
+			u32 raw_page = writesize + oobsize;
+			u32 pagecount = raw_page ? (part_size + raw_page - 1) / raw_page : 0;
+
+			if (!pagecount)
+				return CMD_RET_FAILURE;
+			snprintf(runcmd + runcmd_len, sizeof(runcmd) - runcmd_len, "nand read.raw 0x%x 0x%x %x", address, offset, pagecount);
 		} else
 #endif
 		{
@@ -108,7 +114,7 @@ static int read_from_flash(int flash_type, u32 address, u32 offset, u32 part_siz
 }
 
 int flashread_partition(const char *part_name, u32 load_addr, u32 user_size, int raw, u32 *out_offset, u32 *out_size) {
-	u32 offset, part_size, start_block, size_block, byte_size;
+	u32 offset, part_size, start_block, size_block, byte_size, read_size;
 	int flash_type, ret;
 	char *layout = NULL;
 	unsigned int active_part = 0;
@@ -152,25 +158,34 @@ int flashread_partition(const char *part_name, u32 load_addr, u32 user_size, int
 			return CMD_RET_FAILURE;
 #endif
 		}
-		ret = read_from_flash(flash_type, load_addr, 0, part_size, "default", raw);
-		if (ret == CMD_RET_SUCCESS) {
-			if (out_offset) *out_offset = 0;
-			if (out_size) {
-				if (raw && !strcmp(part_name, "nand_full")) {
+		read_size = part_size;
+		if (raw && !strcmp(part_name, "nand_full")) {
 #ifdef CONFIG_CMD_NAND
 #ifdef CONFIG_IPQ40XX
-					int nd = is_spi_nand_available();
+			int nd = is_spi_nand_available();
 #else
-					int nd = CONFIG_NAND_FLASH_INFO_IDX;
+			int nd = CONFIG_NAND_FLASH_INFO_IDX;
 #endif
-					*out_size = (u32)nand_info[nd].size / nand_info[nd].writesize * (nand_info[nd].writesize + nand_info[nd].oobsize);
+			u32 raw_page = nand_info[nd].writesize + nand_info[nd].oobsize;
+			u64 raw_total = nand_info[nd].writesize ?
+				(u64)nand_info[nd].size / nand_info[nd].writesize * raw_page : 0;
+
+			if (!raw_page || !raw_total || raw_total > 0xFFFFFFFFULL)
+				return CMD_RET_FAILURE;
+			read_size = (u32)raw_total;
+			if (user_size && user_size < read_size)
+				read_size = user_size;
 #else
-					*out_size = part_size;
+			return CMD_RET_FAILURE;
 #endif
-				} else {
-					*out_size = part_size;
-				}
-			}
+		} else if (user_size && user_size < read_size) {
+			read_size = user_size;
+		}
+
+		ret = read_from_flash(flash_type, load_addr, 0, read_size, "default", raw);
+		if (ret == CMD_RET_SUCCESS) {
+			if (out_offset) *out_offset = 0;
+			if (out_size) *out_size = read_size;
 		}
 		return ret ? CMD_RET_FAILURE : CMD_RET_SUCCESS;
 	}
@@ -524,20 +539,47 @@ int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_off
 #endif
 
 #ifdef CONFIG_CMD_NAND
-	if (!strcmp(part_name, "nand_full") || flash_type == SMEM_BOOT_NAND_FLASH || flash_type == SMEM_BOOT_QSPI_NAND_FLASH) {
+	if (!strcmp(part_name, "nand_full") || flash_type == SMEM_BOOT_NAND_FLASH ||
+	    flash_type == SMEM_BOOT_QSPI_NAND_FLASH ||
+	    get_which_flash_param((char *)part_name) > 0) {
+		u64 part_base = 0, part_total;
+
 		if (!strcmp(part_name, "nand_full") && raw)
 			return nand_raw_chunk_read(load_addr, user_offset, user_size, out_offset, out_size, out_detail);
+		if (raw) {
+			printf("raw chunk backup is only supported for nand_full\n");
+			return CMD_RET_FAILURE;
+		}
 #ifdef CONFIG_IPQ40XX
 		nand_dev = is_spi_nand_available();
 #else
 		nand_dev = CONFIG_NAND_FLASH_INFO_IDX;
 #endif
 		mtd = &nand_info[nand_dev];
-		remain = (user_offset < mtd->size) ? mtd->size - user_offset : 0;
+		part_total = mtd->size;
+
+		if (strcmp(part_name, "nand_full") != 0) {
+			u32 part_off, part_size;
+
+			if (!strncmp(part_name, "rootfs", 6) &&
+			    sfi->rootfs.offset == 0xBAD0FF5E) {
+				u32 active = smem_bootconfig_info() == 0 ?
+					get_rootfs_active_partition() : 0;
+
+				part_base = (u64)active * IPQ_NAND_ROOTFS_SIZE;
+				part_total = IPQ_NAND_ROOTFS_SIZE;
+			} else if (getpart_offset_size((char *)part_name, &part_off,
+						       &part_size) == 0 && part_size) {
+				part_base = part_off;
+				part_total = part_size;
+			}
+		}
+
+		remain = (user_offset < part_total) ? part_total - user_offset : 0;
 		chunk_size = (user_size && (u64)user_size < remain) ? user_size : (u32)remain;
 		left_to_read = chunk_size;
-		cur_offset = user_offset;
-		end_offset = user_offset + chunk_size;
+		cur_offset = part_base + user_offset;
+		end_offset = part_base + user_offset + chunk_size;
 		p_buf = (u_char *)(uintptr_t)load_addr;
 		erasesize = mtd->erasesize;
 
@@ -547,25 +589,26 @@ int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_off
 			if (cur_offset >= end_offset)
 				break;
 
-			if (nand_block_isbad(mtd, cur_offset & ~(erasesize - 1))) {
-				size_t skip = erasesize - block_offset;
+			{
+				int isbad = nand_block_isbad(mtd, cur_offset & ~(erasesize - 1));
 
-				if (skip > left_to_read)
-					skip = left_to_read;
-				if (cur_offset + skip > end_offset)
-					skip = end_offset - cur_offset;
-
-				/*
-				 * Backup convention: a bad block is represented as
-				 * 0xFF so the returned chunk always describes the
-				 * requested physical range and the consumer's offset
-				 * progression stays monotonic.
-				 */
-				memset(p_buf, 0xFF, skip);
-				left_to_read -= skip;
-				cur_offset += skip;
-				p_buf += skip;
-				continue;
+				if (isbad < 0) {
+					printf("nand bad-block query failed at 0x%llx: %d\n",
+					       cur_offset, isbad);
+					return CMD_RET_FAILURE;
+				}
+				if (isbad) {
+					/*
+					 * The compact chunk format cannot represent a
+					 * bad block without corrupting every following
+					 * byte on restore. Refuse instead of returning
+					 * fabricated data; use a raw/OOB backup for
+					 * devices with bad blocks.
+					 */
+					printf("nand bad block at 0x%llx, chunk backup refused\n",
+					       cur_offset & ~(erasesize - 1));
+					return CMD_RET_FAILURE;
+				}
 			}
 			if (left_to_read < (erasesize - block_offset))
 				read_length = left_to_read;

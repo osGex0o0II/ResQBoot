@@ -88,6 +88,8 @@ DECLARE_GLOBAL_DATA_PTR;
 #define WEBFAILSAFE_PROGRESS_UPGRADE_FAILED	5
 
 #define PART_JSON_BUF_SIZE 4096
+#define GPT_PRIMARY_SIZE 34
+#define GPT_BACKUP_SIZE 33
 
 static char *boundary_value;
 static struct {
@@ -125,8 +127,14 @@ static void httpd_poll_wait(int count);
 static int mac_fmt(char *buf, const uchar *m, int first);
 
 static void flashread_yield(void) {
-	eth_rx();
-	sys_check_timeouts();
+	/*
+	 * This runs inside a lwIP tcp_recv callback. Calling eth_rx() here
+	 * re-enters lwIP and can free the connection state under us.
+	 * Only yield the CPU/watchdog; receive processing resumes when the
+	 * callback returns to failsafe_httpd_poll().
+	 */
+	WATCHDOG_RESET();
+	mdelay(1);
 }
 
 #define mib_int(b) ((b) / (1024 * 1024))
@@ -181,7 +189,6 @@ static void httpd_state_reset(struct failsafe_httpd_state *hs) {
 		int done = upload.done, failed = upload.failed;
 		hs->owns_global = 0;
 		hs_global = NULL;
-		tcp_setprio(hs->pcb, TCP_PRIO_MIN);
 		memset(&upload, 0, sizeof(upload));
 		upload.done = done;
 		upload.failed = failed;
@@ -199,8 +206,27 @@ static void httpd_state_reset(struct failsafe_httpd_state *hs) {
 	}
 }
 
-static void httpd_conn_abort(struct failsafe_httpd_state *hs, struct tcp_pcb *pcb) {
+static void httpd_detach_pcb(struct tcp_pcb *pcb) {
 	tcp_arg(pcb, NULL);
+	tcp_err(pcb, NULL);
+	tcp_recv(pcb, NULL);
+	tcp_sent(pcb, NULL);
+	tcp_poll(pcb, NULL, 0);
+}
+
+static void httpd_close_conn(struct failsafe_httpd_state *hs, struct tcp_pcb *pcb) {
+	if (pcb) {
+		tcp_setprio(pcb, TCP_PRIO_MIN);
+		httpd_detach_pcb(pcb);
+	}
+	httpd_state_reset(hs);
+	if (pcb)
+		tcp_close(pcb);
+	free(hs);
+}
+
+static void httpd_conn_abort(struct failsafe_httpd_state *hs, struct tcp_pcb *pcb) {
+	httpd_detach_pcb(pcb);
 	httpd_state_reset(hs);
 	free(hs);
 	tcp_abort(pcb);
@@ -278,7 +304,16 @@ static int httpd_findandstore_firstchunk(struct failsafe_httpd_state *hs, char *
 		return 0;
 
 	end += 4;
-	hs->upload_total = hs->upload_total - (int)(end - start) - strlen(boundary_value) - 6;
+	{
+		u64 overhead = (u64)(end - start) + strlen(boundary_value) + 6;
+
+		if (overhead > hs->upload_total) {
+			print_error("invalid Content-Length");
+			upload.failed = 1;
+			return 0;
+		}
+		hs->upload_total -= (u32_t)overhead;
+	}
 	printf("Upload size: %u.%02u MiB [%u bytes | 0x%x]\n", (u32)mib_int(hs->upload_total), (u32)mib_frac(hs->upload_total), hs->upload_total, hs->upload_total);
 
 	if (upload_types[i].get_max_size) {
@@ -311,10 +346,17 @@ static int httpd_findandstore_firstchunk(struct failsafe_httpd_state *hs, char *
 static int httpd_parse_content_length(struct failsafe_httpd_state *hs, char *data) {
 	char *start = strstr(data, "Content-Length:"), *end;
 	if (start) {
+		u64 content_length;
+
 		start += sizeof("Content-Length:");
 		end = strstr(start, "\r\n");
 		if (end) {
-			hs->upload_total = simple_strtoull(start, NULL, 10);
+			content_length = simple_strtoull(start, NULL, 10);
+			if (content_length == 0 || content_length > 0xFFFFFFFFULL) {
+				print_error("invalid Content-Length");
+				return -1;
+			}
+			hs->upload_total = (u32_t)content_length;
 			return 0;
 		}
 	}
@@ -390,7 +432,7 @@ static void httpd_upload_complete(struct failsafe_httpd_state *hs) {
 }
 
 static int httpd_check_upload_complete(struct failsafe_httpd_state *hs) {
-	if (hs->upload >= hs->upload_total + strlen(boundary_value) + 6) {
+	if ((u64)hs->upload >= (u64)hs->upload_total + strlen(boundary_value) + 6) {
 		httpd_upload_complete(hs);
 		static const char resp_ok[] = "HTTP/1.0 200 OK\r\nConnection: close\r\n\r\n";
 		static const char resp_err[] = "HTTP/1.0 500 Internal Server Error\r\nConnection: close\r\n\r\n";
@@ -685,11 +727,20 @@ static void about_gpio_cb(int gpio, const char *name, const char *dir, int value
 	if (c->env_rk_gpio >= 0 && strcmp(parent, "key_gpio") == 0 && src[0] == 'f')
 		override = "reset_key";
 	char path[80];
+	int remaining;
+	int n;
+
 	snprintf(path, sizeof(path), "/tlmm-gpio/%s/%s", parent, name);
 	const char *alias = fdt_find_alias_for_path(path);
-	*c->pos += sprintf(c->buf + *c->pos,
+	remaining = ABOUT_BUF_SIZE - *c->pos;
+	if (remaining < 256)
+		return;
+	n = snprintf(c->buf + *c->pos, remaining,
 		"%s{\"gpio\":%d,\"name\":\"%s\",\"alias\":\"%s\",\"dir\":\"%s\",\"value\":%d,\"parent\":\"%s\",\"source\":\"%s\",\"override\":\"%s\"}",
 		*c->first ? "" : ",", gpio, name, alias ? alias : "", dir, value, parent, src, override);
+	if (n < 0 || n >= remaining)
+		return;
+	*c->pos += n;
 	*c->first = 0;
 }
 
@@ -703,9 +754,9 @@ static void httpd_handle_about(struct failsafe_httpd_state *hs) {
 	{
 		const char *fdt_model = fdt_getprop(gd->fdt_blob, 0, "model", NULL);
 #ifdef CONFIG_BOARD_DISPLAY_NAME
-		pos += sprintf(about_json_buf + pos, "\"model\":\"%s%s%s%s\",", CONFIG_BOARD_DISPLAY_NAME, fdt_model ? " (" : "", fdt_model ? fdt_model : "", fdt_model ? ")" : "");
+		pos += sprintf(about_json_buf + pos, "\"model\":\"%s%s%.128s%s\",", CONFIG_BOARD_DISPLAY_NAME, fdt_model ? " (" : "", fdt_model ? fdt_model : "", fdt_model ? ")" : "");
 #else
-		pos += sprintf(about_json_buf + pos, "\"model\":\"%s\",", fdt_model ? fdt_model : "");
+		pos += sprintf(about_json_buf + pos, "\"model\":\"%.128s\",", fdt_model ? fdt_model : "");
 #endif
 	}
 
@@ -713,7 +764,7 @@ static void httpd_handle_about(struct failsafe_httpd_state *hs) {
 		const char *cn = fdt_getprop(gd->fdt_blob, 0, "config_name", NULL);
 		const char *cn_env = getenv("config_name");
 		if (cn_env) {
-			pos += sprintf(about_json_buf + pos, "\"config_name\":\"%s\"," "\"config_name_source\":\"env\",", cn_env);
+			pos += sprintf(about_json_buf + pos, "\"config_name\":\"%.128s\"," "\"config_name_source\":\"env\",", cn_env);
 		} else if (cn) {
 			int cnt = fdt_count_strings(gd->fdt_blob, 0, "config_name");
 			pos += sprintf(about_json_buf + pos, "\"config_name\":\"");
@@ -722,7 +773,7 @@ static void httpd_handle_about(struct failsafe_httpd_state *hs) {
 				const char *s;
 				if (fdt_get_string_index(gd->fdt_blob, 0, "config_name", i, &s) == 0 && s && strchr(s, '@')) {
 					if (!first) pos += sprintf(about_json_buf + pos, ", ");
-					pos += sprintf(about_json_buf + pos, "%s", s);
+					pos += sprintf(about_json_buf + pos, "%.64s", s);
 					first = 0;
 				}
 			}
@@ -956,6 +1007,13 @@ static void httpd_handle_about(struct failsafe_httpd_state *hs) {
 	}
 	pos += sprintf(about_json_buf + pos, "]}");
 
+	if (pos > ABOUT_BUF_SIZE - 256) {
+		static const char err[] =
+			"HTTP/1.0 500 Internal Server Error\r\nConnection: close\r\n\r\nabout too large";
+		httpd_send_static(hs, err, sizeof(err) - 1);
+		return;
+	}
+
 	hdr_len = sprintf(hdr, "HTTP/1.0 200 OK\r\nCache-Control: no-cache\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", pos);
 	memmove(about_json_buf + hdr_len, about_json_buf, pos);
 	memcpy(about_json_buf, hdr, hdr_len);
@@ -970,17 +1028,35 @@ static void httpd_handle_led(struct failsafe_httpd_state *hs, char *data) {
 	char *q = strchr(&data[4], '?'), name[64] = "", action[16] = "";
 	static char resp[128];
 	int len, alen;
+	int bad = 0;
+
 	if (q) {
 		char *p = q + 1, *amp, *sp;
 		if (strncmp(p, "name=", 5) == 0) {
-			p += 5;
+			const char *start = p + 5;
+			size_t nlen;
+
+			p = (char *)start;
 			amp = strchr(p, '&');
 			sp = strchr(p, ' ');
-			if (amp && (!sp || amp < sp)) { memcpy(name, p, amp - p); name[amp - p] = '\0'; p = amp + 1; }
-			else if (sp) { memcpy(name, p, sp - p); name[sp - p] = '\0'; p = sp; }
-			else { strncpy(name, p, sizeof(name) - 1); name[sizeof(name) - 1] = '\0'; p += strlen(p); }
+			if (amp && (!sp || amp < sp)) {
+				nlen = (size_t)(amp - p);
+				p = amp + 1;
+			} else if (sp) {
+				nlen = (size_t)(sp - p);
+				p = sp;
+			} else {
+				nlen = strlen(p);
+				p += nlen;
+			}
+			if (nlen >= sizeof(name)) {
+				bad = 1;
+			} else {
+				memcpy(name, start, nlen);
+				name[nlen] = '\0';
+			}
 		}
-		if (strncmp(p, "action=", 7) == 0) {
+		if (!bad && strncmp(p, "action=", 7) == 0) {
 			p += 7;
 			sp = strchr(p, ' ');
 			amp = strchr(p, '&');
@@ -993,12 +1069,13 @@ static void httpd_handle_led(struct failsafe_httpd_state *hs, char *data) {
 			action[alen] = '\0';
 		}
 	}
-	if (name[0] && action[0]) {
+	if (!bad && name[0] && action[0]) {
 		if (strcmp(action, "on") == 0) led_on(name);
 		else if (strcmp(action, "off") == 0) led_off(name);
 		else if (strcmp(action, "toggle") == 0) led_toggle(name);
 	}
-	len = sprintf(resp, "HTTP/1.0 200 OK\r\nCache-Control: no-cache\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nok");
+	len = sprintf(resp, "HTTP/1.0 %s\r\nCache-Control: no-cache\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n%s",
+		      bad ? "400 Bad Request" : "200 OK", bad ? "bad request" : "ok");
 	httpd_send_static(hs, resp, len);
 }
 
@@ -1038,30 +1115,63 @@ static void httpd_handle_btn_detect(struct failsafe_httpd_state *hs) {
 
 static void httpd_handle_env_set(struct failsafe_httpd_state *hs, char *data, int data_len) {
 	static char resp[128];
-	int len, ok = 0;
+	int len, ok = 0, bad = 0;
 	char *body = strstr(data, "\r\n\r\n");
+
 	if (body) {
-		body += 4;
-		char *amp = strchr(body, '&');
+		char *amp, *eq;
 		char name[64] = "", value[128] = "";
-		char *eq = strchr(body, '=');
+		size_t nlen, vlen;
+
+		body += 4;
+		amp = strchr(body, '&');
+		eq = strchr(body, '=');
 		if (eq && eq < (amp ? amp : body + strlen(body))) {
-			memcpy(name, body, eq - body);
-			name[eq - body] = '\0';
-			if (amp)
-				memcpy(value, eq + 1, amp - eq - 1);
-			else
-				strcpy(value, eq + 1);
-			if (strcmp(name, "reset_key") == 0 || strcmp(name, "config_name") == 0) {
-				setenv(name, value[0] ? value : NULL);
-				saveenv();
-				if (strcmp(name, "reset_key") == 0)
-					env_reset_gpio_invalidate();
-				ok = 1;
+			nlen = (size_t)(eq - body);
+			vlen = amp ? (size_t)(amp - (eq + 1)) : strlen(eq + 1);
+
+			if (nlen >= sizeof(name) || vlen >= sizeof(value)) {
+				bad = 1;
+			} else {
+				memcpy(name, body, nlen);
+				name[nlen] = '\0';
+				memcpy(value, eq + 1, vlen);
+				value[vlen] = '\0';
+
+				if (strcmp(name, "reset_key") == 0) {
+					if (value[0]) {
+						char *endp;
+						unsigned long gpio = simple_strtoul(value, &endp, 10);
+
+						if (*endp != '\0' || gpio >= GPIO_MAX) {
+							bad = 1;
+						} else {
+							setenv(name, value);
+							saveenv();
+							env_reset_gpio_invalidate();
+							ok = 1;
+						}
+					} else {
+						setenv(name, NULL);
+						saveenv();
+						env_reset_gpio_invalidate();
+						ok = 1;
+					}
+				} else if (strcmp(name, "config_name") == 0) {
+					setenv(name, value[0] ? value : NULL);
+					saveenv();
+					ok = 1;
+				}
 			}
+		} else {
+			bad = 1;
 		}
+	} else {
+		bad = 1;
 	}
-	len = sprintf(resp, "HTTP/1.0 200 OK\r\nCache-Control: no-cache\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n%s", ok ? "ok" : "error");
+
+	len = sprintf(resp, "HTTP/1.0 %s\r\nCache-Control: no-cache\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n%s",
+		      bad ? "400 Bad Request" : "200 OK", bad ? "bad request" : (ok ? "ok" : "error"));
 	httpd_send_static(hs, resp, len);
 }
 
@@ -1143,29 +1253,45 @@ static void httpd_handle_mac_set(struct failsafe_httpd_state *hs, char *data, in
 
 #ifdef CONFIG_QCA_MMC
 static int append_emmc_gpt_json(int pos, int *count, block_dev_desc_t *blk_dev) {
-	int gpt_count, i;
+	int gpt_count, i, n, remaining;
 	disk_partition_t disk_info;
 
-	pos += sprintf(part_json_buf + pos,
+	remaining = PART_JSON_BUF_SIZE - pos;
+	if (remaining < 240)
+		return pos;
+	n = snprintf(part_json_buf + pos, remaining,
 		"%s{\"name\":\"0:GPT\",\"start\":0,\"size\":%llu,\"flash\":\"emmc\",\"blk_start\":0,\"blk_size\":34,\"blksz\":%lu}",
 		(*count > 0 ? "," : ""), (u64)34 * (u64)blk_dev->blksz, (ulong)blk_dev->blksz);
+	if (n < 0 || n >= remaining)
+		return pos;
+	pos += n;
 	(*count)++;
 
 	gpt_count = get_partition_count_efi(blk_dev);
-	for (i = 1; i <= gpt_count && pos < PART_JSON_BUF_SIZE - 120; i++) {
+	for (i = 1; i <= gpt_count && pos < PART_JSON_BUF_SIZE - 240; i++) {
 		if (get_partition_info_efi(blk_dev, i, &disk_info) == 0) {
-			pos += sprintf(part_json_buf + pos,
+			remaining = PART_JSON_BUF_SIZE - pos;
+			n = snprintf(part_json_buf + pos, remaining,
 				",{\"name\":\"%s\",\"start\":%llu,\"size\":%llu,\"flash\":\"emmc\",\"blk_start\":%llu,\"blk_size\":%llu,\"blksz\":%lu}",
 				disk_info.name, (u64)disk_info.start * (u64)blk_dev->blksz, (u64)disk_info.size * (u64)blk_dev->blksz,
 				(u64)disk_info.start, (u64)disk_info.size, (ulong)blk_dev->blksz);
+			if (n < 0 || n >= remaining)
+				break;
+			pos += n;
 			(*count)++;
 		}
 	}
 
-	pos += sprintf(part_json_buf + pos,
-		",{\"name\":\"0:GPTBACKUP\",\"start\":%llu,\"size\":%llu,\"flash\":\"emmc\",\"blk_start\":%llu,\"blk_size\":33,\"blksz\":%lu}",
-		(u64)(blk_dev->lba - 33) * (u64)blk_dev->blksz, (u64)33 * (u64)blk_dev->blksz, (u64)(blk_dev->lba - 33), (ulong)blk_dev->blksz);
-	(*count)++;
+	remaining = PART_JSON_BUF_SIZE - pos;
+	if (remaining >= 240) {
+		n = snprintf(part_json_buf + pos, remaining,
+			",{\"name\":\"0:GPTBACKUP\",\"start\":%llu,\"size\":%llu,\"flash\":\"emmc\",\"blk_start\":%llu,\"blk_size\":33,\"blksz\":%lu}",
+			(u64)(blk_dev->lba - 33) * (u64)blk_dev->blksz, (u64)33 * (u64)blk_dev->blksz, (u64)(blk_dev->lba - 33), (ulong)blk_dev->blksz);
+		if (n > 0 && n < remaining) {
+			pos += n;
+			(*count)++;
+		}
+	}
 
 	return pos;
 }
@@ -1194,7 +1320,7 @@ static void httpd_handle_partitions(struct failsafe_httpd_state *hs) {
 #endif
 	{
 		smem_count = smem_getpart_count();
-		for (i = 0; i < smem_count && pos < PART_JSON_BUF_SIZE - 80; i++) {
+		for (i = 0; i < smem_count && pos < PART_JSON_BUF_SIZE - 200; i++) {
 			if (smem_getpart_by_index(i, name, sizeof(name), &start, &size) == 0) {
 				const char *pflash = "nor";
 #ifdef CONFIG_CMD_NAND
@@ -1218,32 +1344,36 @@ static void httpd_handle_partitions(struct failsafe_httpd_state *hs) {
 #endif
 	}
 
-	pos += sprintf(part_json_buf + pos, "],\"has_spi\":%s,\"spi_size\":%lu,\"has_nand\":%s,\"nand_size\":%lu,\"nand_raw_size\":%lu,\"ram_available\":%lu,\"has_emmc\":%s,\"emmc_size\":%llu,\"nand_type\":\"%s\"}",
-		(sfi->flash_type == SMEM_BOOT_SPI_FLASH ? "true" : "false")
-		,(ulong)(sfi->flash_type == SMEM_BOOT_SPI_FLASH ? get_spi_flash_size() : 0)
-#ifdef CONFIG_CMD_NAND
-		,(nand_info[0].size > 0 || (CONFIG_SYS_MAX_NAND_DEVICE > 1 && nand_info[1].size > 0) ? "true" : "false")
-		,(ulong)(nand_info[0].size > 0 ? nand_info[0].size : (CONFIG_SYS_MAX_NAND_DEVICE > 1 ? nand_info[1].size : 0))
-		,(ulong)(nand_info[0].size > 0 && nand_info[0].writesize > 0 ?
-			(nand_info[0].size / nand_info[0].writesize * (nand_info[0].writesize + nand_info[0].oobsize)) :
-			(CONFIG_SYS_MAX_NAND_DEVICE > 1 && nand_info[1].size > 0 && nand_info[1].writesize > 0 ?
-				(nand_info[1].size / nand_info[1].writesize * (nand_info[1].writesize + nand_info[1].oobsize)) : 0UL))
-#else
-		,"false",0UL,0UL
-#endif
-		,(ulong)(CONFIG_SYS_SDRAM_END - WEBFAILSAFE_UPLOAD_RAM_ADDRESS)
-#ifdef CONFIG_QCA_MMC
-		,(blk_dev ? "true" : "false")
-		,(u64)(blk_dev ? (u64)blk_dev->lba * (u64)blk_dev->blksz : 0ULL)
-#else
-		,"false",0ULL
-#endif
-#ifdef CONFIG_CMD_NAND
-		,(nand_info[0].size > 0 ? "parallel" : (CONFIG_SYS_MAX_NAND_DEVICE > 1 && nand_info[1].size > 0 ? "spi" : "parallel"))
-#else
-		,"none"
-#endif
-	);
+	if (pos < PART_JSON_BUF_SIZE - 320) {
+		pos += sprintf(part_json_buf + pos, "],\"has_spi\":%s,\"spi_size\":%lu,\"has_nand\":%s,\"nand_size\":%lu,\"nand_raw_size\":%lu,\"ram_available\":%lu,\"has_emmc\":%s,\"emmc_size\":%llu,\"nand_type\":\"%s\"}",
+			(sfi->flash_type == SMEM_BOOT_SPI_FLASH ? "true" : "false")
+			,(ulong)(sfi->flash_type == SMEM_BOOT_SPI_FLASH ? get_spi_flash_size() : 0)
+	#ifdef CONFIG_CMD_NAND
+			,(nand_info[0].size > 0 || (CONFIG_SYS_MAX_NAND_DEVICE > 1 && nand_info[1].size > 0) ? "true" : "false")
+			,(ulong)(nand_info[0].size > 0 ? nand_info[0].size : (CONFIG_SYS_MAX_NAND_DEVICE > 1 ? nand_info[1].size : 0))
+			,(ulong)(nand_info[0].size > 0 && nand_info[0].writesize > 0 ?
+				(nand_info[0].size / nand_info[0].writesize * (nand_info[0].writesize + nand_info[0].oobsize)) :
+				(CONFIG_SYS_MAX_NAND_DEVICE > 1 && nand_info[1].size > 0 && nand_info[1].writesize > 0 ?
+					(nand_info[1].size / nand_info[1].writesize * (nand_info[1].writesize + nand_info[1].oobsize)) : 0UL))
+	#else
+			,"false",0UL,0UL
+	#endif
+			,(ulong)(CONFIG_SYS_SDRAM_END - WEBFAILSAFE_UPLOAD_RAM_ADDRESS)
+	#ifdef CONFIG_QCA_MMC
+			,(blk_dev ? "true" : "false")
+			,(u64)(blk_dev ? (u64)blk_dev->lba * (u64)blk_dev->blksz : 0ULL)
+	#else
+			,"false",0ULL
+	#endif
+	#ifdef CONFIG_CMD_NAND
+			,(nand_info[0].size > 0 ? "parallel" : (CONFIG_SYS_MAX_NAND_DEVICE > 1 && nand_info[1].size > 0 ? "spi" : "parallel"))
+	#else
+			,"none"
+	#endif
+		);
+	} else {
+		pos += sprintf(part_json_buf + pos, "]}");
+	}
 
 	hdr_len = sprintf(hdr, "HTTP/1.0 200 OK\r\n" "Content-Type: application/json\r\n" "Content-Length: %d\r\n" "Connection: close\r\n\r\n", pos);
 
@@ -1261,12 +1391,15 @@ static u64 backup_flash_capacity(const char *part_name, int raw)
 	u64 capacity = 0;
 	uint32_t flash_type;
 
-	get_current_flash_type(&flash_type);
+	if (get_current_flash_type(&flash_type) != 0)
+		return 0;
 
 #ifdef CONFIG_CMD_NAND
 	if (!strcmp(part_name, "nand_full") ||
 	    flash_type == SMEM_BOOT_NAND_FLASH ||
-	    flash_type == SMEM_BOOT_QSPI_NAND_FLASH) {
+	    flash_type == SMEM_BOOT_QSPI_NAND_FLASH ||
+	    flash_type == SMEM_BOOT_NORPLUSNAND ||
+	    get_which_flash_param((char *)part_name) > 0) {
 #ifdef CONFIG_IPQ40XX
 		int nd = is_spi_nand_available();
 #else
@@ -1299,7 +1432,30 @@ static u64 backup_flash_capacity(const char *part_name, int raw)
 	if (!strcmp(part_name, "nor_full"))
 		return get_spi_flash_size();
 
-	if (flash_type == SMEM_BOOT_SPI_FLASH) {
+#ifdef CONFIG_QCA_MMC
+	if (flash_type == SMEM_BOOT_MMC_FLASH ||
+	    flash_type == SMEM_BOOT_NO_FLASH ||
+	    flash_type == SMEM_BOOT_NORPLUSEMMC) {
+		block_dev_desc_t *blk_dev = mmc_get_dev(mmc_host.dev_num);
+
+		if (blk_dev) {
+			disk_partition_t disk_info;
+
+			if (!strcmp(part_name, "0:GPT"))
+				return (u64)GPT_PRIMARY_SIZE * blk_dev->blksz;
+			if (!strcmp(part_name, "0:GPTBACKUP"))
+				return (u64)GPT_BACKUP_SIZE * blk_dev->blksz;
+			if (get_partition_info_efi_by_name(blk_dev, (char *)part_name,
+							   &disk_info) == 0)
+				return (u64)disk_info.size * blk_dev->blksz;
+			return (u64)blk_dev->lba * blk_dev->blksz;
+		}
+	}
+#endif
+
+	if (flash_type == SMEM_BOOT_SPI_FLASH ||
+	    flash_type == SMEM_BOOT_NORPLUSNAND ||
+	    flash_type == SMEM_BOOT_NORPLUSEMMC) {
 #ifdef CONFIG_CMD_NAND
 		if (get_which_flash_param((char *)part_name) > 0) {
 			u32 offset, part_size;
@@ -1312,14 +1468,6 @@ static u64 backup_flash_capacity(const char *part_name, int raw)
 		return get_spi_flash_size();
 	}
 
-#ifdef CONFIG_QCA_MMC
-	if (flash_type == SMEM_BOOT_MMC_FLASH || flash_type == SMEM_BOOT_NO_FLASH) {
-		block_dev_desc_t *blk_dev = mmc_get_dev(mmc_host.dev_num);
-		if (blk_dev)
-			capacity = (u64)blk_dev->lba * blk_dev->blksz;
-	}
-#endif
-
 	return capacity;
 }
 
@@ -1329,6 +1477,13 @@ static void httpd_handle_backup(struct failsafe_httpd_state *hs, char *data, int
 	int hdr_len, raw = 0;
 	u32_t ram_avail;
 	u64 total_size = 0;
+
+	if (hs_global && hs_global != hs) {
+		static const char *busy =
+			"HTTP/1.0 503 Service Unavailable\r\nConnection: close\r\n\r\nBusy";
+		httpd_send_static(hs, busy, strlen(busy));
+		return;
+	}
 
 	if (!query || strncmp(query + 1, "part=", 5) != 0) {
 		static const char *err = "HTTP/1.0 400 Bad Request\r\nConnection: close\r\n\r\nMissing partition";
@@ -1421,7 +1576,8 @@ static void httpd_handle_backup(struct failsafe_httpd_state *hs, char *data, int
 		backup.chunk_offset = 0;
 	}
 
-	httpd_poll_wait(1);
+	/* Do not re-enter lwIP from this tcp_recv callback. */
+	mdelay(1);
 
 	sprintf(filename, "%s%s.bin", part_name, raw ? "_oob" : "");
 	hdr_len = sprintf(part_json_buf, "HTTP/1.0 200 OK\r\n" "Content-Type: application/octet-stream\r\n"
@@ -1438,16 +1594,19 @@ static void httpd_handle_backup(struct failsafe_httpd_state *hs, char *data, int
 	backup.sending_header = 1;
 }
 
-static void httpd_handle_file_request(struct failsafe_httpd_state *hs, char *data, int data_len) {
+static int httpd_handle_file_request(struct failsafe_httpd_state *hs, char *data, int data_len) {
 	struct fs_file fsfile;
 	u32_t i;
 
-	if (memcmp((const void *)&data[4], "/cgi-bin/", 9) == 0) {
+	if (data_len < 6)
+		return -1;
+
+	if (data_len >= 13 && memcmp((const void *)&data[4], "/cgi-bin/", 9) == 0) {
 		httpd_send_static(hs, "HTTP/1.0 302 Found\r\nLocation: /index.html\r\n\r\n", 44);
-		return;
+		return 0;
 	}
 
-	for (i = 4; i < 30; i++) {
+	for (i = 4; i < 30 && (int)i < data_len; i++) {
 		if (is_http_whitespace(data[i])) {
 			data[i] = 0;
 			i = 0;
@@ -1456,8 +1615,7 @@ static void httpd_handle_file_request(struct failsafe_httpd_state *hs, char *dat
 	}
 	if (i != 0) {
 		print_error("request file name too long!");
-		httpd_conn_abort(hs, hs->pcb);
-		return;
+		return -1;
 	}
 
 	{
@@ -1490,7 +1648,7 @@ static void httpd_handle_file_request(struct failsafe_httpd_state *hs, char *dat
 						"HTTP/1.0 302 Found\r\nLocation: /update.html#%s\r\n\r\n",
 						redirects[i].hash);
 					httpd_send_static(hs, redirect_buf, len);
-					return;
+					return 0;
 				}
 			}
 		}
@@ -1502,6 +1660,7 @@ static void httpd_handle_file_request(struct failsafe_httpd_state *hs, char *dat
 	}
 
 	httpd_send_static(hs, fsfile.data, fsfile.len);
+	return 0;
 }
 
 void httpd_send_data(struct failsafe_httpd_state *hs) {
@@ -1609,8 +1768,7 @@ static err_t httpd_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
 			upload.done = 0;
 			upload.failed = 0;
 		}
-		httpd_state_reset(hs);
-		tcp_close(pcb);
+		httpd_close_conn(hs, pcb);
 		return ERR_OK;
 	}
 
@@ -1630,18 +1788,25 @@ static err_t httpd_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 	}
 
 	if (p == NULL) {
-		httpd_state_reset(hs);
-		tcp_close(pcb);
+		httpd_close_conn(hs, pcb);
 		return ERR_OK;
 	}
 
 	hs->last_activity = (u32_t)get_timer(0);
 
-	data = malloc(p->tot_len + 1);
-	if (!data) {
-		pbuf_free(p);
-		httpd_conn_abort(hs, pcb);
-		return ERR_ABRT;
+	{
+		int alloc_len = p->tot_len + 1;
+
+		/* Keep short requests from reading/writing past the buffer. */
+		if (alloc_len < 64)
+			alloc_len = 64;
+		data = malloc(alloc_len);
+		if (!data) {
+			pbuf_free(p);
+			httpd_conn_abort(hs, pcb);
+			return ERR_ABRT;
+		}
+		memset(data, 0, alloc_len);
 	}
 	offset = 0;
 	for (q = p; q; q = q->next) {
@@ -1649,7 +1814,6 @@ static err_t httpd_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 		offset += q->len;
 	}
 	data_len = p->tot_len;
-	data[data_len] = '\0';
 	need_free = 1;
 
 	switch (hs->state) {
@@ -1688,7 +1852,8 @@ static err_t httpd_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 				httpd_handle_btn_detect(hs);
 				break;
 			}
-			httpd_handle_file_request(hs, data, data_len);
+			if (httpd_handle_file_request(hs, data, data_len) < 0)
+				return httpd_recv_abort(hs, pcb, data, need_free, p);
 		} else if (strncmp(data, "POST", 4) == 0 && is_http_method_separator(data[4])) {
 			if (strncmp(&data[5], "/webterm", 8) == 0) {
 				webterm_http_handler(hs, data, data_len);
@@ -1703,6 +1868,12 @@ static err_t httpd_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 				break;
 			}
 			data[data_len] = '\0';
+			if (hs_global && hs_global != hs) {
+				static const char busy[] =
+					"HTTP/1.0 503 Service Unavailable\r\nConnection: close\r\n\r\nBusy";
+				httpd_send_static(hs, busy, sizeof(busy) - 1);
+				break;
+			}
 			if (httpd_parse_content_length(hs, data) < 0)
 				return httpd_recv_abort(hs, pcb, data, need_free, p);
 			hs->state = STATE_UPLOAD_REQUEST;
@@ -1833,19 +2004,22 @@ void failsafe_httpd_init(void) {
 static struct netif failsafe_netif;
 
 static int httpd_progress_start_done = 0;
-static int eth_init_attempted = 0;
 static ulong periodic_timer = 0;
+static ulong eth_retry_timer = 0;
 
 static void abort_port_pcb(struct tcp_pcb **list) {
 	struct tcp_pcb *pcb, *next;
 	for (pcb = *list; pcb != NULL; pcb = next) {
 		next = pcb->next;
 		if (pcb->local_port == 80) {
-			tcp_arg(pcb, NULL);
-			tcp_err(pcb, NULL);
-			tcp_recv(pcb, NULL);
-			tcp_sent(pcb, NULL);
-			tcp_poll(pcb, NULL, 0);
+			struct failsafe_httpd_state *hs =
+				(struct failsafe_httpd_state *)pcb->callback_arg;
+
+			httpd_detach_pcb(pcb);
+			if (hs) {
+				httpd_state_reset(hs);
+				free(hs);
+			}
 			tcp_abort(pcb);
 		}
 	}
@@ -1860,9 +2034,20 @@ void failsafe_httpd_stop(void) {
 	abort_port_pcb(&tcp_tw_pcbs);
 	abort_port_pcb(&tcp_bound_pcbs);
 	hs_global = NULL;
+	/* Drop any upload/backup state left over from the stopped session. */
+	memset(&upload, 0, sizeof(upload));
+	memset(&backup, 0, sizeof(backup));
+	if (boundary_value) {
+		free(boundary_value);
+		boundary_value = NULL;
+	}
+	flashread_yield_fn = NULL;
+#ifdef CONFIG_QCA_MMC
+	emmc_cache_invalidate();
+#endif
 	netif_remove(&failsafe_netif);
 	httpd_progress_start_done = 0;
-	eth_init_attempted = 0;
+	eth_retry_timer = 0;
 	periodic_timer = 0;
 }
 
@@ -1903,7 +2088,7 @@ void failsafe_httpd_poll(void) {
 		upgrade_status = 1;
 		setenv_hex("filesize", net_boot_file_size);
 		setenv_hex("filesize_128k", (net_boot_file_size/131072+(net_boot_file_size%131072!=0))*131072);
-		setenv_hex("fileaddr", load_addr);
+		setenv_hex("fileaddr", WEBFAILSAFE_UPLOAD_RAM_ADDRESS);
 		do_http_progress(WEBFAILSAFE_PROGRESS_UPLOAD_READY);
 
 		httpd_poll_wait(1000);
@@ -1928,11 +2113,6 @@ void failsafe_httpd_poll(void) {
 		return;
 	}
 
-	if (webterm_run_pending_command()) {
-		if (!eth_is_active(eth_get_dev()))
-			eth_init_attempted = 0;
-	}
-
 #if defined(CONFIG_IPQ5332) || defined(CONFIG_IPQ9574)
 	link_changed = eth_check_link_change();
 #else
@@ -1940,8 +2120,8 @@ void failsafe_httpd_poll(void) {
 #endif
 
 	if (!eth_is_active(eth_get_dev())) {
-		if (!eth_init_attempted) {
-			eth_init_attempted = 1;
+		if (get_timer(eth_retry_timer) >= 2000) {
+			eth_retry_timer = get_timer(0);
 			eth_halt();
 			eth_set_current();
 			eth_init();
@@ -1949,12 +2129,13 @@ void failsafe_httpd_poll(void) {
 			ppe_arp_kickstart();
 #endif
 		}
-	}
+	} else {
+		eth_retry_timer = get_timer(0);
 #if defined(CONFIG_IPQ5332) || defined(CONFIG_IPQ9574)
-	else if (link_changed > 0) {
-		ppe_arp_kickstart();
-	}
+		if (link_changed > 0)
+			ppe_arp_kickstart();
 #endif
+	}
 
 	if (!httpd_progress_start_done && eth_is_active(eth_get_dev())) {
 		do_http_progress(WEBFAILSAFE_PROGRESS_START);

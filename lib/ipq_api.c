@@ -218,7 +218,15 @@ int env_reset_gpio(void) {
 	if (env_reset_gpio_cached == -2) {
 		char *val = getenv("reset_key");
 		if (val) {
-			env_reset_gpio_cached = simple_strtoul(val, NULL, 10);
+			char *endp;
+			unsigned long gpio = simple_strtoul(val, &endp, 10);
+
+			if (*endp != '\0' || gpio >= GPIO_MAX) {
+				printf("Invalid reset_key '%s' (GPIO max %d)\n", val, GPIO_MAX);
+				env_reset_gpio_cached = -1;
+				return env_reset_gpio_cached;
+			}
+			env_reset_gpio_cached = (int)gpio;
 			btn_init_gpio(env_reset_gpio_cached, "reset_key", "env");
 		} else {
 			env_reset_gpio_cached = -1;

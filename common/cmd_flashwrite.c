@@ -189,9 +189,9 @@ static int gpt_convert_and_write(block_dev_desc_t *blk_dev, const char *part_nam
 		return -1;
 	}
 
-	if ((uint64_t)file_size <
+	if ((uint64_t)file_size !=
 	    (uint64_t)(is_src_primary ? GPT_PRIMARY_SIZE : GPT_BACKUP_SIZE) * blksz) {
-		printf("GPT: uploaded GPT region is incomplete\n");
+		printf("GPT: uploaded GPT region size mismatch\n");
 		return -1;
 	}
 
@@ -204,14 +204,16 @@ static int gpt_convert_and_write(block_dev_desc_t *blk_dev, const char *part_nam
 
 	num_entries = le32_to_cpu(gpt_h->num_partition_entries);
 	entry_size = le32_to_cpu(gpt_h->sizeof_partition_entry);
-	if (entry_size < 128 || entry_size > blksz) {
-		printf("GPT: invalid partition entry size\n");
+	if (num_entries == 0 || entry_size < 128 || entry_size > blksz ||
+	    (entry_size % 128) != 0) {
+		printf("GPT: invalid partition entry size/count\n");
 		return -1;
 	}
 
 	entries_bytes64 = (uint64_t)num_entries * entry_size;
-	if (entries_bytes64 > 0xFFFFFFFFULL) {
-		printf("GPT: partition entry array too large\n");
+	if (entries_bytes64 == 0 ||
+	    entries_bytes64 > (uint64_t)(GPT_PRIMARY_SIZE - 2) * blksz) {
+		printf("GPT: partition entry array does not fit GPT region\n");
 		return -1;
 	}
 	if (is_src_primary) {
