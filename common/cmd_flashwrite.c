@@ -189,13 +189,15 @@ static int gpt_convert_and_write(block_dev_desc_t *blk_dev, const char *part_nam
 		return -1;
 	}
 
-	if ((uint64_t)file_size !=
+	if ((uint64_t)file_size <
 	    (uint64_t)(is_src_primary ? GPT_PRIMARY_SIZE : GPT_BACKUP_SIZE) * blksz) {
-		printf("GPT: uploaded GPT region size mismatch\n");
+		printf("GPT: uploaded GPT region is incomplete\n");
 		return -1;
 	}
 
-	gpt_h = (gpt_header *)(is_src_primary ? src + blksz : src + (file_size - blksz));
+	/* Validate the same fixed region that will be written. */
+	gpt_h = (gpt_header *)(is_src_primary ? src + blksz :
+			       src + (GPT_BACKUP_SIZE - 1) * blksz);
 
 	if (gpt_verify_header_crc((uint8_t *)gpt_h, blksz) != 0) {
 		printf("GPT: Header CRC32 invalid\n");
@@ -242,8 +244,11 @@ static int gpt_convert_and_write(block_dev_desc_t *blk_dev, const char *part_nam
 		uint64_t src_my = le64_to_cpu(gpt_h->my_lba);
 		uint64_t src_alt = le64_to_cpu(gpt_h->alternate_lba);
 		uint64_t src_last = le64_to_cpu(gpt_h->last_usable_lba);
+		uint64_t src_entries = le64_to_cpu(gpt_h->partition_entry_lba);
+		uint64_t exp_entries = is_dst_primary ? 2 : lba - GPT_BACKUP_SIZE;
 
-		if (src_my != exp_my || src_alt != exp_alt || src_last > max_last) {
+		if (src_my != exp_my || src_alt != exp_alt ||
+		    src_last > max_last || src_entries != exp_entries) {
 			printf("%s LBA [file:%llu!=emmc:%llu] autofix\n",
 				is_src_primary ? "Primary" : "Backup",
 				src_alt != exp_alt ? src_alt : (src_my != exp_my ? src_my : src_last),
@@ -251,6 +256,7 @@ static int gpt_convert_and_write(block_dev_desc_t *blk_dev, const char *part_nam
 
 			gpt_h->my_lba = cpu_to_le64(exp_my);
 			gpt_h->alternate_lba = cpu_to_le64(exp_alt);
+			gpt_h->partition_entry_lba = cpu_to_le64(exp_entries);
 			if (src_last > max_last)
 				gpt_h->last_usable_lba = cpu_to_le64(max_last);
 			gpt_fix_header_crc((uint8_t *)gpt_h);
@@ -282,8 +288,9 @@ static int gpt_convert_and_write(block_dev_desc_t *blk_dev, const char *part_nam
 		gpt_h->partition_entry_lba = cpu_to_le64(lba - entries_sectors - 1);
 		gpt_fix_header_crc((uint8_t *)gpt_h);
 
-		memcpy(src, buf, GPT_BACKUP_SIZE * blksz);
-		if (write_to_flash(SMEM_BOOT_MMC_FLASH, load_addr, (uint32_t)(lba - GPT_BACKUP_SIZE), GPT_BACKUP_SIZE, GPT_BACKUP_SIZE, "default") != CMD_RET_SUCCESS) {
+		if (write_to_flash(SMEM_BOOT_MMC_FLASH, (uint32_t)(uintptr_t)buf,
+				   (uint32_t)(lba - GPT_BACKUP_SIZE), GPT_BACKUP_SIZE,
+				   GPT_BACKUP_SIZE, "default") != CMD_RET_SUCCESS) {
 			free(buf);
 			return -1;
 		}
@@ -304,8 +311,9 @@ static int gpt_convert_and_write(block_dev_desc_t *blk_dev, const char *part_nam
 		gpt_h->partition_entry_lba = cpu_to_le64(2);
 		gpt_fix_header_crc((uint8_t *)gpt_h);
 
-		memcpy(src, buf, GPT_PRIMARY_SIZE * blksz);
-		if (write_to_flash(SMEM_BOOT_MMC_FLASH, load_addr, 0, GPT_PRIMARY_SIZE, GPT_PRIMARY_SIZE, "default") != CMD_RET_SUCCESS) {
+		if (write_to_flash(SMEM_BOOT_MMC_FLASH, (uint32_t)(uintptr_t)buf,
+				   0, GPT_PRIMARY_SIZE, GPT_PRIMARY_SIZE,
+				   "default") != CMD_RET_SUCCESS) {
 			free(buf);
 			return -1;
 		}
@@ -549,15 +557,11 @@ char * const argv[])
 			{
 				ret = get_partition_info_efi_by_name(blk_dev,
 				part_name, &disk_info);
-#ifdef CONFIG_LWIP_HTTPD
 				if (ret) {
-					printf("Partition %s not found, skipped\n", part_name);
-					return 0;
-				}
-#else
-				if (ret)
+					printf("Partition %s not found\n", part_name);
+					ret = CMD_RET_FAILURE;
 					goto exit;
-#endif
+				}
 				offset = (ulong)disk_info.start;
 				part_size = (ulong)disk_info.size;
 			}
@@ -624,8 +628,9 @@ char * const argv[])
 							part_name, &disk_info);
 #ifdef CONFIG_LWIP_HTTPD
 					if (ret) {
-						printf("Partition %s not found, skipped\n", part_name);
-						return 0;
+						printf("Partition %s not found\n", part_name);
+						ret = CMD_RET_FAILURE;
+						goto exit;
 					}
 #else
 					if (ret)
@@ -638,8 +643,9 @@ char * const argv[])
 			}
 #ifdef CONFIG_LWIP_HTTPD
 			else {
-				printf("eMMC not initialized, skipped %s\n", part_name);
-				return 0;
+				printf("eMMC not initialized: %s\n", part_name);
+				ret = CMD_RET_FAILURE;
+				goto exit;
 			}
 #endif
 #endif

@@ -137,6 +137,16 @@ jobs:
       - name: Prepare release assets
         run: python3 scripts/prepare_release_assets.py --artifacts-dir artifacts --output-dir release-assets --body release-notes.md
 
+      - name: Verify main still points at the built commit
+        run: |
+          MAIN_SHA=$(gh api repos/${{ github.repository }}/git/ref/heads/main --jq .object.sha)
+          if [ "$MAIN_SHA" != "${{ github.sha }}" ]; then
+            echo "main moved to $MAIN_SHA; refusing to publish build ${{ github.sha }}"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Delete existing release for current tag
         run: |
           TARGET_TAG="v${{ env.TODAY }}"
@@ -158,6 +168,7 @@ jobs:
         with:
           tag_name: v${{ env.TODAY }}
           name: v${{ env.TODAY }}
+          target_commitish: ${{ github.sha }}
           body_path: release-notes.md
           files: release-assets/*
           fail_on_unmatched_files: true

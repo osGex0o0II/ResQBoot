@@ -218,38 +218,53 @@ static int art_write(loff_t offset, size_t size, const void *buf) {
 		 * check_offs_len() rejects).
 		 */
 		u32 erase_size = nand_info[idx].erasesize;
-		u64 absolute = (u64)base + offset;
-		u64 erase_off = erase_size ? absolute & ~(u64)(erase_size - 1) : 0;
-		u32 within = (u32)(absolute - erase_off);
+		u64 start = (u64)base + offset;
+		u64 end = start + size;
+		u64 block_off;
 		u8 *block;
-		size_t len;
 
-		if (!erase_size || (u64)within + size > erase_size)
+		if (!erase_size || end < start || start < (u64)base)
 			return -EINVAL;
 
 		block = malloc(erase_size);
 		if (!block)
 			return -ENOMEM;
 
-		len = erase_size;
-		ret = nand_read(&nand_info[idx], erase_off, &len, block);
-		if (ret < 0 || len != erase_size) {
-			free(block);
-			return -EIO;
+		for (block_off = start & ~(u64)(erase_size - 1);
+		     block_off < end; block_off += erase_size) {
+			u64 data_start = (start > block_off) ? start : block_off;
+			u32 within = (u32)(data_start - block_off);
+			u32 chunk = (u32)(end - data_start);
+			size_t len = erase_size;
+
+			if (block_off < (u64)base || chunk > erase_size - within) {
+				free(block);
+				return -EINVAL;
+			}
+
+			ret = nand_read(&nand_info[idx], block_off, &len, block);
+			if (ret < 0 || len != erase_size) {
+				free(block);
+				return -EIO;
+			}
+
+			memcpy(block + within, (const u8 *)buf + (data_start - start),
+			       chunk);
+			ret = nand_erase(&nand_info[idx], block_off, erase_size);
+			if (ret < 0) {
+				free(block);
+				return ret;
+			}
+
+			len = erase_size;
+			ret = nand_write(&nand_info[idx], block_off, &len, block);
+			if (ret < 0 || len != erase_size) {
+				free(block);
+				return -EIO;
+			}
 		}
 
-		memcpy(block + within, buf, size);
-		ret = nand_erase(&nand_info[idx], erase_off, erase_size);
-		if (ret < 0) {
-			free(block);
-			return ret;
-		}
-
-		len = erase_size;
-		ret = nand_write(&nand_info[idx], erase_off, &len, block);
 		free(block);
-		if (len != erase_size)
-			ret = -EIO;
 #else
 		return -EINVAL;
 #endif

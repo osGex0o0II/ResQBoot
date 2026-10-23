@@ -128,6 +128,11 @@ int flashread_partition(const char *part_name, u32 load_addr, u32 user_size, int
 #endif
 	qca_smem_flash_info_t *sfi = &qca_smem_flash_info;
 
+	if (raw && strcmp(part_name, "nand_full") != 0) {
+		printf("raw backup is only supported for nand_full\n");
+		return CMD_RET_FAILURE;
+	}
+
 	offset = 0;
 	part_size = 0;
 	layout = "default";
@@ -558,13 +563,17 @@ int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_off
 #else
 		nand_dev = CONFIG_NAND_FLASH_INFO_IDX;
 #endif
+		if (nand_dev < 0 || !nand_info[nand_dev].size ||
+		    !nand_info[nand_dev].writesize || !nand_info[nand_dev].erasesize)
+			return CMD_RET_FAILURE;
+
 		mtd = &nand_info[nand_dev];
 		part_total = mtd->size;
 
 		if (strcmp(part_name, "nand_full") != 0) {
 			u32 part_off, part_size;
 
-			if (!strncmp(part_name, "rootfs", 6) &&
+			if (!strcmp(part_name, "rootfs") &&
 			    sfi->rootfs.offset == 0xBAD0FF5E) {
 				u32 active = smem_bootconfig_info() == 0 ?
 					get_rootfs_active_partition() : 0;
@@ -575,9 +584,14 @@ int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_off
 						       &part_size) == 0 && part_size) {
 				part_base = part_off;
 				part_total = part_size;
+			} else {
+				printf("NAND partition %s not found\n", part_name);
+				return CMD_RET_FAILURE;
 			}
 		}
 
+		if (!part_total)
+			return CMD_RET_FAILURE;
 		remain = (user_offset < part_total) ? part_total - user_offset : 0;
 		chunk_size = (user_size && (u64)user_size < remain) ? user_size : (u32)remain;
 		left_to_read = chunk_size;

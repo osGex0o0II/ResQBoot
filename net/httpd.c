@@ -258,14 +258,21 @@ static int do_firmware_upgrade(const ulong size) {
 				u64 actual_hlos_size = info.hlos_size;
 				u64 hlos_size = get_hlos_size();
 				u64 rootfs_size = get_rootfs_size();
-				u64 actual_rootfs_size = (size > actual_hlos_size) ? (size - actual_hlos_size) : 0;
-				if ((hlos_size > 0 && actual_hlos_size > hlos_size) ||
-				    (rootfs_size > 0 && actual_rootfs_size > rootfs_size)) {
-					printf("FIT component exceeds target partition\n");
+				u64 actual_rootfs_size;
+
+				if (hlos_size == 0 || rootfs_size == 0) {
+					printf("FIT target partition size unknown\n");
 					return -1;
 				}
-				if(actual_hlos_size == 0 && actual_rootfs_size == 0) {
-					printf("Error: Both HLOS and rootfs partition sizes are zero\n");
+				if (actual_hlos_size == 0 || actual_hlos_size >= size) {
+					printf("FIT HLOS size is invalid\n");
+					return -1;
+				}
+				actual_rootfs_size = size - actual_hlos_size;
+				if (actual_rootfs_size == 0 ||
+				    actual_hlos_size > hlos_size ||
+				    actual_rootfs_size > rootfs_size) {
+					printf("FIT component exceeds target partition\n");
 					return -1;
 				}
 				sprintf(buf, "flash 0:HLOS 0x%lx 0x%llx && flash rootfs 0x%lx 0x%llx",
@@ -593,6 +600,11 @@ static int do_img_upgrade(const ulong size) {
 				return -1;
 			}
 #ifdef CONFIG_CMD_NAND
+			if (!nand_info[nand_dev].size ||
+			    !nand_info[nand_dev].writesize) {
+				printf("NAND device unavailable\n");
+				return -1;
+			}
 			if (raw) {
 				u32 writesize = nand_info[nand_dev].writesize;
 				u32 oobsize = nand_info[nand_dev].oobsize;

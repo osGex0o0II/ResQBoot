@@ -122,6 +122,7 @@ static struct {
 int upgrade_status = 0;
 static char part_json_buf[PART_JSON_BUF_SIZE];
 static struct failsafe_httpd_state *hs_global;
+static int upload_pending;
 
 static void httpd_poll_wait(int count);
 static int mac_fmt(char *buf, const uchar *m, int first);
@@ -346,12 +347,17 @@ static int httpd_parse_content_length(struct failsafe_httpd_state *hs, char *dat
 	char *start = strstr(data, "Content-Length:"), *end;
 	if (start) {
 		u64 content_length;
+		char *num_end;
 
-		start += sizeof("Content-Length:");
+		start += strlen("Content-Length:");
+		while (*start == ' ' || *start == '\t')
+			start++;
 		end = strstr(start, "\r\n");
 		if (end) {
-			content_length = simple_strtoull(start, NULL, 10);
-			if (content_length == 0 || content_length > 0xFFFFFFFFULL) {
+			content_length = simple_strtoull(start, &num_end, 10);
+			if (num_end == start ||
+			    content_length == 0 ||
+			    content_length > 0xFFFFFFFFULL) {
 				print_error("invalid Content-Length");
 				return -1;
 			}
@@ -426,6 +432,8 @@ static void httpd_upload_complete(struct failsafe_httpd_state *hs) {
 	}
 	led_on("blink_led");
 	upload.done = 1;
+	if (!upload.failed)
+		upload_pending = 1;
 	upgrade_status = 1;
 	net_boot_file_size = (ulong)hs->upload_total;
 }
@@ -1004,14 +1012,13 @@ static void httpd_handle_about(struct failsafe_httpd_state *hs) {
 			about_gpio_cb(rk_gpio, "reset_key", "in", rk_value, "key_gpio", &ctx);
 		}
 	}
-	pos += sprintf(about_json_buf + pos, "]}");
-
 	if (pos > ABOUT_BUF_SIZE - 256) {
 		static const char err[] =
 			"HTTP/1.0 500 Internal Server Error\r\nConnection: close\r\n\r\nabout too large";
 		httpd_send_static(hs, err, sizeof(err) - 1);
 		return;
 	}
+	pos += sprintf(about_json_buf + pos, "]}");
 
 	hdr_len = sprintf(hdr, "HTTP/1.0 200 OK\r\nCache-Control: no-cache\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", pos);
 	memmove(about_json_buf + hdr_len, about_json_buf, pos);
@@ -1139,10 +1146,22 @@ static void httpd_handle_env_set(struct failsafe_httpd_state *hs, char *data, in
 
 				if (strcmp(name, "reset_key") == 0) {
 					if (value[0]) {
-						char *endp;
-						unsigned long gpio = simple_strtoul(value, &endp, 10);
+						unsigned long gpio = 0;
+						int i, valid = 1;
 
-						if (*endp != '\0' || gpio >= GPIO_MAX) {
+						for (i = 0; value[i]; i++) {
+							if (value[i] < '0' || value[i] > '9' ||
+							    gpio > (GPIO_MAX - 1) / 10) {
+								valid = 0;
+								break;
+							}
+							gpio = gpio * 10 + (value[i] - '0');
+							if (gpio >= GPIO_MAX) {
+								valid = 0;
+								break;
+							}
+						}
+						if (!valid) {
 							bad = 1;
 						} else {
 							setenv(name, value);
@@ -1256,7 +1275,7 @@ static int append_emmc_gpt_json(int pos, int *count, block_dev_desc_t *blk_dev) 
 	disk_partition_t disk_info;
 
 	remaining = PART_JSON_BUF_SIZE - pos;
-	if (remaining < 240)
+	if (remaining < 340)
 		return pos;
 	n = snprintf(part_json_buf + pos, remaining,
 		"%s{\"name\":\"0:GPT\",\"start\":0,\"size\":%llu,\"flash\":\"emmc\",\"blk_start\":0,\"blk_size\":34,\"blksz\":%lu}",
@@ -1267,7 +1286,7 @@ static int append_emmc_gpt_json(int pos, int *count, block_dev_desc_t *blk_dev) 
 	(*count)++;
 
 	gpt_count = get_partition_count_efi(blk_dev);
-	for (i = 1; i <= gpt_count && pos < PART_JSON_BUF_SIZE - 240; i++) {
+	for (i = 1; i <= gpt_count && pos < PART_JSON_BUF_SIZE - 340; i++) {
 		if (get_partition_info_efi(blk_dev, i, &disk_info) == 0) {
 			remaining = PART_JSON_BUF_SIZE - pos;
 			n = snprintf(part_json_buf + pos, remaining,
@@ -1282,7 +1301,7 @@ static int append_emmc_gpt_json(int pos, int *count, block_dev_desc_t *blk_dev) 
 	}
 
 	remaining = PART_JSON_BUF_SIZE - pos;
-	if (remaining >= 240) {
+	if (remaining >= 340) {
 		n = snprintf(part_json_buf + pos, remaining,
 			",{\"name\":\"0:GPTBACKUP\",\"start\":%llu,\"size\":%llu,\"flash\":\"emmc\",\"blk_start\":%llu,\"blk_size\":33,\"blksz\":%lu}",
 			(u64)(blk_dev->lba - 33) * (u64)blk_dev->blksz, (u64)33 * (u64)blk_dev->blksz, (u64)(blk_dev->lba - 33), (ulong)blk_dev->blksz);
@@ -1299,13 +1318,14 @@ static int append_emmc_gpt_json(int pos, int *count, block_dev_desc_t *blk_dev) 
 static void httpd_handle_partitions(struct failsafe_httpd_state *hs) {
 	int i, pos = 0, hdr_len, count = 0, smem_count;
 	char name[SMEM_PTN_NAME_MAX], hdr[128];
-	uint32_t start, size, flash_type, bsize;
+	uint32_t start, size, flash_type = SMEM_BOOT_NO_FLASH, bsize;
 	qca_smem_flash_info_t *sfi = &qca_smem_flash_info;
 #ifdef CONFIG_QCA_MMC
 	block_dev_desc_t *blk_dev = NULL;
 #endif
 
-	get_current_flash_type(&flash_type);
+	if (get_current_flash_type(&flash_type) != 0)
+		flash_type = sfi->flash_type;
 	bsize = sfi->flash_block_size;
 
 	pos += sprintf(part_json_buf + pos, "{\"parts\":[");
@@ -1375,6 +1395,12 @@ static void httpd_handle_partitions(struct failsafe_httpd_state *hs) {
 	}
 
 	hdr_len = sprintf(hdr, "HTTP/1.0 200 OK\r\n" "Content-Type: application/json\r\n" "Content-Length: %d\r\n" "Connection: close\r\n\r\n", pos);
+	if (hdr_len + pos > (int)sizeof(part_json_buf)) {
+		static const char err[] =
+			"HTTP/1.0 500 Internal Server Error\r\nConnection: close\r\n\r\npartitions too large";
+		httpd_send_static(hs, err, sizeof(err) - 1);
+		return;
+	}
 
 	memmove(part_json_buf + hdr_len, part_json_buf, pos);
 	memcpy(part_json_buf, hdr, hdr_len);
@@ -1392,6 +1418,9 @@ static u64 backup_flash_capacity(const char *part_name, int raw)
 
 	if (get_current_flash_type(&flash_type) != 0)
 		return 0;
+
+	if (!strcmp(part_name, "nor_full"))
+		return get_spi_flash_size();
 
 #ifdef CONFIG_CMD_NAND
 	if (!strcmp(part_name, "nand_full") ||
@@ -1427,9 +1456,6 @@ static u64 backup_flash_capacity(const char *part_name, int raw)
 		return capacity;
 	}
 #endif
-
-	if (!strcmp(part_name, "nor_full"))
-		return get_spi_flash_size();
 
 #ifdef CONFIG_QCA_MMC
 	if (flash_type == SMEM_BOOT_MMC_FLASH ||
@@ -1477,7 +1503,7 @@ static void httpd_handle_backup(struct failsafe_httpd_state *hs, char *data, int
 	u32_t ram_avail;
 	u64 total_size = 0;
 
-	if (hs_global && hs_global != hs) {
+	if (upload_pending || (hs_global && hs_global != hs)) {
 		static const char *busy =
 			"HTTP/1.0 503 Service Unavailable\r\nConnection: close\r\n\r\nBusy";
 		httpd_send_static(hs, busy, strlen(busy));
@@ -1747,20 +1773,28 @@ static err_t httpd_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
 
 	hs->last_activity = (u32_t)get_timer(0);
 
-	if (backup.sending_header && hs->upload <= 0) {
-		backup.sending_header = 0;
-		hs->state = STATE_FILE_REQUEST;
-		hs->dataptr = (u8_t *)(uintptr_t)backup.data_addr;
-		hs->upload = backup.data_size;
+	{
+		int owner = hs->owns_global && hs == hs_global;
+
+		if (owner && backup.sending_header && hs->upload <= 0) {
+			backup.sending_header = 0;
+			hs->state = STATE_FILE_REQUEST;
+			hs->dataptr = (u8_t *)(uintptr_t)backup.data_addr;
+			hs->upload = backup.data_size;
+		}
+
+		if (hs->upload <= 0) {
+			if (owner && backup.chunked && backup.total_remaining > 0 &&
+			    !backup.chunk_busy) {
+				backup.chunk_busy = 1;
+				return ERR_OK;
+			}
+			if (owner && backup.chunk_busy)
+				return ERR_OK;
+		}
 	}
 
 	if (hs->upload <= 0) {
-		if (backup.chunked && backup.total_remaining > 0 && !backup.chunk_busy) {
-			backup.chunk_busy = 1;
-			return ERR_OK;
-		}
-		if (backup.chunk_busy)
-			return ERR_OK;
 		if (upload.done) {
 			if (!upload.failed)
 				webfailsafe_ready_for_upgrade = 1;
@@ -1787,6 +1821,17 @@ static err_t httpd_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 	}
 
 	if (p == NULL) {
+		/*
+		 * A half-close can arrive before httpd_sent() consumes
+		 * upload.done. Arm the upgrade here as well; the response was
+		 * already queued by httpd_check_upload_complete().
+		 */
+		if (upload.done) {
+			if (!upload.failed)
+				webfailsafe_ready_for_upgrade = 1;
+			upload.done = 0;
+			upload.failed = 0;
+		}
 		httpd_close_conn(hs, pcb);
 		return ERR_OK;
 	}
@@ -1867,7 +1912,7 @@ static err_t httpd_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 				break;
 			}
 			data[data_len] = '\0';
-			if (hs_global && hs_global != hs) {
+			if (upload_pending || (hs_global && hs_global != hs)) {
 				static const char busy[] =
 					"HTTP/1.0 503 Service Unavailable\r\nConnection: close\r\n\r\nBusy";
 				httpd_send_static(hs, busy, sizeof(busy) - 1);
@@ -2036,6 +2081,7 @@ void failsafe_httpd_stop(void) {
 	/* Drop any upload/backup state left over from the stopped session. */
 	memset(&upload, 0, sizeof(upload));
 	memset(&backup, 0, sizeof(backup));
+	upload_pending = 0;
 	if (boundary_value) {
 		free(boundary_value);
 		boundary_value = NULL;
@@ -2095,11 +2141,17 @@ void failsafe_httpd_poll(void) {
 		upgrade_status = 2;
 		httpd_poll_wait(1500);
 
-		if (do_http_upgrade(net_boot_file_size, webfailsafe_upgrade_type) < 0) {
-			do_http_progress(WEBFAILSAFE_PROGRESS_UPGRADE_FAILED);
-			upgrade_status = 3;
-			httpd_poll_wait(2000);
-			return;
+		{
+			int upgrade_ret = do_http_upgrade(net_boot_file_size,
+							  webfailsafe_upgrade_type);
+
+			upload_pending = 0;
+			if (upgrade_ret < 0) {
+				do_http_progress(WEBFAILSAFE_PROGRESS_UPGRADE_FAILED);
+				upgrade_status = 3;
+				httpd_poll_wait(2000);
+				return;
+			}
 		}
 		upgrade_status = webfailsafe_auto_reboot_enabled ? 4 : 5;
 
@@ -2110,6 +2162,15 @@ void failsafe_httpd_poll(void) {
 			printf("reboot fail\n");
 		}
 		return;
+	}
+
+	/*
+	 * Execute web-terminal commands from the main poll loop, never from a
+	 * lwIP callback. A command may halt/reinit Ethernet.
+	 */
+	if (webterm_run_pending_command()) {
+		if (!eth_is_active(eth_get_dev()))
+			eth_retry_timer = 0;
 	}
 
 #if defined(CONFIG_IPQ5332) || defined(CONFIG_IPQ9574)

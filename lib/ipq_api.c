@@ -218,10 +218,21 @@ int env_reset_gpio(void) {
 	if (env_reset_gpio_cached == -2) {
 		char *val = getenv("reset_key");
 		if (val) {
-			char *endp;
-			unsigned long gpio = simple_strtoul(val, &endp, 10);
+			const char *p = val;
+			unsigned long gpio = 0;
+			int valid = *val != '\0';
 
-			if (*endp != '\0' || gpio >= GPIO_MAX) {
+			for (; valid && *p; p++) {
+				if (*p < '0' || *p > '9' ||
+				    gpio > (GPIO_MAX - 1) / 10) {
+					valid = 0;
+					break;
+				}
+				gpio = gpio * 10 + (*p - '0');
+				if (gpio >= GPIO_MAX)
+					valid = 0;
+			}
+			if (!valid) {
 				printf("Invalid reset_key '%s' (GPIO max %d)\n", val, GPIO_MAX);
 				env_reset_gpio_cached = -1;
 				return env_reset_gpio_cached;
