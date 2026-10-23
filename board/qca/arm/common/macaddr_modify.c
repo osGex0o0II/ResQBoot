@@ -154,7 +154,7 @@ static int art_read(loff_t offset, size_t size, void *buf) {
 static int art_write(loff_t offset, size_t size, const void *buf) {
 	qca_smem_flash_info_t *sfi = &qca_smem_flash_info;
 	loff_t base;
-	int ret;
+	int ret = 0;
 
 #ifdef CONFIG_QCA_MMC
 	if (sfi->flash_type == SMEM_BOOT_MMC_FLASH) {
