@@ -348,11 +348,11 @@ const char *bootdelay_process(void)
 		s = getenv("altbootcmd");
 	} else
 #endif /* CONFIG_BOOTCOUNT_LIMIT */
-#ifdef CONFIG_HTTPD
+#ifdef CONFIG_LWIP_HTTPD
 	{
 #endif
 		s = getenv("bootcmd");
-#ifdef CONFIG_HTTPD
+#ifdef CONFIG_LWIP_HTTPD
 		if (s && strcmp(s, "bootipq") != 0)
 			s = "bootipq";
 	}
@@ -410,20 +410,39 @@ void autoboot_command(const char *s)
 
 	if (apps_iscrashed_crashdump_disabled()) {
 		printf("Crashdump disabled, resetting the board..\n");
+#ifdef CONFIG_LWIP_HTTPD
+		eth_initialize();
+		run_command("httpd", 0);
+		return;
+#else
 		reset_board();
+#endif
 	}
 
 	if (stored_bootdelay != -1 && s && !abortboot(stored_bootdelay)) {
 #if defined(CONFIG_AUTOBOOT_KEYED) && !defined(CONFIG_AUTOBOOT_KEYED_CTRLC)
 		int prev = disable_ctrlc(1);	/* disable Control C checking */
 #endif
-
+#ifdef CONFIG_IPQ5332
+#ifdef CONFIG_IPQ_ETH_INIT_DEFER
+		eth_initialize();
+#endif
+#endif
 		run_command_list(s, -1, 0);
 
 #if defined(CONFIG_AUTOBOOT_KEYED) && !defined(CONFIG_AUTOBOOT_KEYED_CTRLC)
 		disable_ctrlc(prev);	/* restore Control C checking */
 #endif
 	}
+#ifdef CONFIG_LWIP_HTTPD
+	else if (stored_bootdelay != -1) {
+#ifndef CONFIG_IPQ40XX
+		eth_initialize();
+#endif
+		run_command("httpd", 0);
+		return;
+	}
+#endif
 
 #ifdef CONFIG_MENUKEY
 	if (menukey == CONFIG_MENUKEY) {
@@ -433,9 +452,11 @@ void autoboot_command(const char *s)
 	}
 #endif /* CONFIG_MENUKEY */
 
+#ifndef CONFIG_IPQ5332
 #ifdef CONFIG_IPQ_ETH_INIT_DEFER
 	puts("\nNet:   ");
 	eth_initialize();
+#endif
 #endif
 #ifdef CONFIG_IPQ_PCI_INIT_DEFER
 	pci_init();

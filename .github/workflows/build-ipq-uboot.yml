@@ -61,7 +61,7 @@ jobs:
           sudo apt-get install -y ${{ env.DEPENDENCIES }}
 
       - name: Install Node.js packages(minifier, css, js, terser) for Web interface compression
-        run: sudo npm install -g html-minifier-terser clean-css terser
+        run: sudo npm install -g html-minifier-terser clean-css terser svgo
 
       - name: Clone Toolchain to staging_dir
         run: |

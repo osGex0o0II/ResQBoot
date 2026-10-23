@@ -13,10 +13,11 @@
 #include <bootretry.h>
 #include <cli.h>
 #include <console.h>
+#include <watchdog.h>
 #include <linux/ctype.h>
 
-#ifdef CONFIG_HTTPD
-#include "../httpd/httpd.h"
+#ifdef CONFIG_LWIP_HTTPD
+#include "../failsafe/failsafe_httpd.h"
 #endif
 
 #define DEBUG_PARSER	0	/* set to 1 to debug */
@@ -270,7 +271,7 @@ void cli_simple_loop(void)
 	int rc = 1;
 
 	for (;;) {
-#ifdef CONFIG_HTTPD
+#ifdef CONFIG_LWIP_HTTPD
 		httpd_poll();
 #endif
 		if (rc >= 0) {

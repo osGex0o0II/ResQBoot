@@ -1,0 +1,656 @@
+#!/bin/bash
+
+# This script generates "fsdata.c" file for lwIP stack.
+# It takes one argument - name of vendor directory,
+# which should contains all www files, at least:
+# - index.html (with: <input type="file" name="firmware">)
+# - 404.html
+# - flashing.hmtl
+# - fail.html
+#
+# Files are processed with dedicated tools and then compressed.
+# Uses zopfli for best gzip-compatible compression (Google's zopfli)
+# Falls back to gzip -9 if zopfli not available
+
+# ===== DEBUG MODE CONFIGURATION =====
+# Set debug_mode to 1 to enable debug output and retain intermediate files
+# Set debug_mode to 0 to disable debug output (no intermediate files saved)
+debug_mode=1
+# ====================================
+
+# ===== COMPRESSION CONFIGURATION =====
+# zopfli iterations: higher = better compression, slower
+#   1-10   = fast, good compression
+#   15-30  = balanced (default)
+#   50-100 = better compression, slower
+#   500+   = extreme compression, very slow
+zopfli_iterations=30
+# =====================================
+
+# ===== CLASS RENAME CONFIGURATION =====
+# Set rename_classes to 1 to enable CSS class name shortening
+# Set rename_classes to 0 to disable
+rename_classes=1
+# ======================================
+
+# Parse arguments (command line argument overrides the default setting)
+vendor_dir=${1:-pig}
+
+# Check for debug flag in command line (overrides the default setting)
+if [[ "$2" == "-d" || "$2" == "--debug" ]]; then
+    debug_mode=1
+elif [ $debug_mode -eq 1 ]; then
+    :
+fi
+
+# Check for zopfli iterations override
+if [[ "$2" =~ ^--iterations=[0-9]+$ ]]; then
+    zopfli_iterations=${2#--iterations=}
+elif [[ "$3" =~ ^--iterations=[0-9]+$ ]]; then
+    zopfli_iterations=${3#--iterations=}
+fi
+
+# Vendor specific directory (default: "pig")
+
+# Config directory
+config_dir="$(dirname "$0")/npmjson"
+
+# Temporary files
+files_content_tmp="html/.files_content"
+files_list_tmp="html/.files_list"
+stats_rename_tmp="html/.stats_rename"
+stats_minify_tmp="html/.stats_minify"
+stats_compress_tmp="html/.stats_compress"
+
+# Debug directories for intermediate files
+if [ $debug_mode -eq 1 ]; then
+    debug_dir="html/debug_output"
+    minified_dir="$debug_dir/minified"
+    compressed_dir="$debug_dir/compressed"
+    mkdir -p "$minified_dir" "$compressed_dir"
+fi
+
+# Enable better error handling
+set -e
+
+# Function to check Node.js module availability
+check_node_module() {
+	local module=$1
+	local version_var=$2
+
+	if command -v node >/dev/null 2>&1; then
+		if node -e "try { require.resolve('$module'); } catch(e) { process.exit(1); }" 2>/dev/null; then
+			eval "$version_var=1"
+			return 0
+		else
+			for node_path in /usr/lib/node_modules \
+						   /usr/local/lib/node_modules \
+						   $HOME/.npm-global/lib/node_modules \
+						   $HOME/node_modules; do
+				if [ -d "$node_path/$module" ]; then
+					export NODE_PATH="$node_path:${NODE_PATH:-}"
+					eval "$version_var=1"
+					return 0
+				fi
+			done
+		fi
+	fi
+
+	eval "$version_var=0"
+	return 1
+}
+
+# Check for Node.js and modules
+node_available=0
+node_version=""
+if command -v node >/dev/null 2>&1; then
+	node_available=1
+	node_version=$(node --version 2>/dev/null)
+fi
+
+# Check for specific tools
+html_minifier_available=0
+html_minifier_version=""
+css_minifier_available=0
+css_minifier_version=""
+js_minifier_available=0
+js_minifier_version=""
+svgo_available=0
+svgo_version=""
+zopfli_available=0
+zopfli_version=""
+
+if [ $node_available -eq 1 ]; then
+	if check_node_module "html-minifier" "html_minifier_available"; then
+		html_minifier_available=1
+		html_minifier_version=$(node -e "try { console.log(require('html-minifier/package.json').version); } catch(e) {}" 2>/dev/null)
+	elif check_node_module "html-minifier-terser" "html_minifier_available"; then
+		html_minifier_available=1
+		html_minifier_version=$(node -e "try { console.log(require('html-minifier-terser/package.json').version); } catch(e) {}" 2>/dev/null)
+		mkdir -p html/node_modules
+		ln -sf $(dirname $(node -e "console.log(require.resolve('html-minifier-terser'))" 2>/dev/null)) html/node_modules/html-minifier 2>/dev/null || true
+	fi
+
+	if check_node_module "clean-css" "css_minifier_available"; then
+		css_minifier_version=$(node -e "try { console.log(require('clean-css/package.json').version); } catch(e) {}" 2>/dev/null)
+	fi
+
+	if check_node_module "terser" "js_minifier_available"; then
+		js_minifier_version=$(node -e "try { console.log(require('terser/package.json').version); } catch(e) {}" 2>/dev/null)
+	fi
+
+	if check_node_module "svgo" "svgo_available"; then
+		svgo_version=$(node -e "try { console.log(require('svgo/package.json').version); } catch(e) {}" 2>/dev/null)
+		if [ -z "$svgo_version" ]; then
+			svgo_version=$(svgo --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || echo "")
+		fi
+	fi
+fi
+
+# Check for zopfli (Google's gzip optimizer)
+if command -v zopfli >/dev/null 2>&1; then
+    echo "test" > /tmp/zopfli_test.txt
+    if zopfli --i1 /tmp/zopfli_test.txt 2>/dev/null && [ -f /tmp/zopfli_test.txt.gz ]; then
+        zopfli_available=1
+        zopfli_version=$(dpkg -l zopfli 2>/dev/null | grep zopfli | awk '{print $3}' | cut -d'-' -f1 || rpm -q zopfli 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || echo "")
+        rm -f /tmp/zopfli_test.txt.gz
+    fi
+    rm -f /tmp/zopfli_test.txt
+fi
+
+# Determine compression backend
+compression_backend="gzip"
+if [ $zopfli_available -eq 1 ]; then
+    compression_backend="zopfli"
+fi
+
+# Check for class rename script
+rename_available=0
+if [ $node_available -eq 1 ] && [ -f "html/rename_classes.js" ]; then
+	rename_available=1
+fi
+
+# Print tool availability summary
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+echo "Node.js Modules:" >&2
+printf "  %-28s %b" "HTML -> html-minifier:"  "$([ $html_minifier_available -eq 1 ] && echo -e "${GREEN}✓${NC}" || echo -e "${RED}×${NC}")" >&2
+[ -n "$html_minifier_version" ] && printf " (v%s)" "$html_minifier_version" >&2
+echo "" >&2
+printf "  %-28s %b" "CSS -> clean-css:"       "$([ $css_minifier_available -eq 1 ] && echo -e "${GREEN}✓${NC}" || echo -e "${RED}×${NC}")" >&2
+[ -n "$css_minifier_version" ] && printf " (v%s)" "$css_minifier_version" >&2
+echo "" >&2
+printf "  %-28s %b" "JS -> terser:"           "$([ $js_minifier_available -eq 1 ] && echo -e "${GREEN}✓${NC}" || echo -e "${RED}×${NC}")" >&2
+[ -n "$js_minifier_version" ] && printf " (v%s)" "$js_minifier_version" >&2
+echo "" >&2
+printf "  %-28s %b" "SVG -> svgo:"            "$([ $svgo_available -eq 1 ] && echo -e "${GREEN}✓${NC}" || echo -e "${RED}×${NC}")" >&2
+[ -n "$svgo_version" ] && printf " (v%s)" "$svgo_version" >&2
+echo "" >&2
+echo "" >&2
+echo "Custom Scripts:" >&2
+printf "  %-28s %b\n" "ClassRename:"          "$([ $rename_available -eq 1 ] && echo -e "${GREEN}✓${NC}" || echo -e "${RED}×${NC}")" >&2
+echo "" >&2
+echo "System Tools:" >&2
+printf "  %-28s %s" "Compress:"               "$compression_backend" >&2
+[ -n "$zopfli_version" ] && printf " (v%s)" "$zopfli_version" >&2
+echo "" >&2
+
+# Previous fsdata_file var name
+prev_fsdata_struct="NULL"
+
+# Files counter
+files_counter=0
+
+function minify_svg() {
+	local _input_file="$1"
+	local _output_file="$2"
+	local _original_filename="$3"
+	if [ $svgo_available -eq 1 ]; then
+		node -e "
+		const {optimize} = require('svgo');
+		const fs = require('fs');
+		const path = require('path');
+		const configDir = '$config_dir';
+		const config = JSON.parse(fs.readFileSync(path.join(configDir, 'svgo.config.json'), 'utf8'));
+		const result = optimize(fs.readFileSync('$_input_file','utf8'), config);
+		fs.writeFileSync('$_output_file', result.data);
+		" || cp "$_input_file" "$_output_file"
+	else
+		cp "$_input_file" "$_output_file"
+	fi
+
+	if [ $debug_mode -eq 1 ] && [ -n "$_original_filename" ]; then
+		local debug_filename="$(basename "$_original_filename")"
+		cp "$_output_file" "$minified_dir/$debug_filename"
+	fi
+}
+
+# Change ASCII to bytes, comma separated (e.g. "0x01, 0x02, 0x03...")
+function ascii_to_bytes() {
+	echo -ne "$1" | od -A n -t x1 | tr -d '\n\r ' | sed 's/../0x&,/g;s/,$//'
+}
+
+# Print merged size comparison table
+# Reads from all three stats files and outputs a single table
+function print_merged_stats() {
+	if [ ! -f "$stats_compress_tmp" ] || [ ! -s "$stats_compress_tmp" ]; then
+		return
+	fi
+	echo "" >&2
+	echo "Size Comparison (bytes):" >&2
+	echo "------------------------------------------------------------------------------" >&2
+	printf "  %-14s %12s %14s %14s %14s\n" "File" "Original" "Rename" "Minify" "Compress" >&2
+	printf "  %-14s %12s %8s %5s %8s %5s %8s %5s\n" "" "" "Size" "Redu" "Size" "Redu" "Size" "Redu" >&2
+	echo "------------------------------------------------------------------------------" >&2
+	local total_orig=0
+	local total_rename=0
+	local total_minify=0
+	local total_comp=0
+	while read filename orig_size renamed_size minified_size comp_size; do
+		if [ -n "$filename" ] && [ -n "$comp_size" ]; then
+			# Determine display sizes for each stage
+			local _orig=$orig_size
+			local _ren=$renamed_size
+			local _min=$minified_size
+			local _cmp=$comp_size
+			# If rename was not applied, show original as rename input
+			if [ "$_orig" -gt 0 ] 2>/dev/null && [ "$_ren" -eq 0 ] 2>/dev/null; then
+				_ren=$_orig
+			fi
+			# If minify was not applied (e.g. images), show rename as minify input
+			if [ "$_min" -eq 0 ] 2>/dev/null; then
+				_min=$_ren
+			fi
+			# Calculate ratios
+			local _r1=0 _r2=0 _r3=0
+			if [ "$_orig" -gt 0 ] 2>/dev/null && [ "$_ren" -gt 0 ] 2>/dev/null; then
+				_r1=$((100 - (_ren * 100 / _orig)))
+			fi
+			if [ "$_ren" -gt 0 ] 2>/dev/null && [ "$_min" -gt 0 ] 2>/dev/null; then
+				_r2=$((100 - (_min * 100 / _ren)))
+			fi
+			if [ "$_min" -gt 0 ] 2>/dev/null && [ "$_cmp" -gt 0 ] 2>/dev/null; then
+				_r3=$((100 - (_cmp * 100 / _min)))
+			fi
+			printf "  %-14s %12d %8d %4d%% %8d %4d%% %8d %4d%%\n" "$filename" "$_orig" "$_ren" "$_r1" "$_min" "$_r2" "$_cmp" "$_r3" >&2
+			total_orig=$((total_orig + _orig))
+			total_rename=$((total_rename + _ren))
+			total_minify=$((total_minify + _min))
+			total_comp=$((total_comp + _cmp))
+		fi
+	done < "$stats_compress_tmp"
+	if [ $total_orig -gt 0 ]; then
+		local _r1=0 _r2=0 _r3=0
+		if [ $total_orig -gt 0 ]; then _r1=$((100 - (total_rename * 100 / total_orig))); fi
+		if [ $total_rename -gt 0 ]; then _r2=$((100 - (total_minify * 100 / total_rename))); fi
+		if [ $total_minify -gt 0 ]; then _r3=$((100 - (total_comp * 100 / total_minify))); fi
+		printf "  %-14s %12d %8d %4d%% %8d %4d%% %8d %4d%%\n" "TOTAL" "$total_orig" "$total_rename" "$_r1" "$total_minify" "$_r2" "$total_comp" "$_r3" >&2
+	fi
+}
+
+# Compress data using best available method and convert to hex
+# $1: input file, $2: original filename, $3: minified size (input to compression)
+function compress_and_convert() {
+	local _input_file="$1"
+	local _original_filename="$2"
+	local _minified_size="${3:-0}"
+	local _temp_compressed=$(mktemp)
+
+	if [ "$compression_backend" = "zopfli" ] && [ $zopfli_available -eq 1 ]; then
+		zopfli --i$zopfli_iterations "$_input_file" 2>/dev/null
+		if [ -f "$_input_file.gz" ]; then
+			mv "$_input_file.gz" "$_temp_compressed"
+		else
+			gzip -c9n "$_input_file" > "$_temp_compressed"
+		fi
+	else
+		gzip -c9n "$_input_file" > "$_temp_compressed"
+	fi
+
+	local _compressed_data=$(cat "$_temp_compressed" | od -A n -t x1 | tr -d '\n\r ' | sed 's/../0x&,/g;s/,$//')
+	local _comp_size=$(stat -c%s "$_temp_compressed" 2>/dev/null || stat -f %z "$_temp_compressed" 2>/dev/null)
+
+	if [ $debug_mode -eq 1 ] && [ -n "$_original_filename" ]; then
+		local debug_filename="$(basename "$_original_filename").gz"
+		cp "$_temp_compressed" "$compressed_dir/$debug_filename"
+	fi
+
+	# Record stats: filename original_size renamed_size minified_size compressed_size
+	echo "$_original_filename $_file_orig_size $_file_renamed_size $_minified_size $_comp_size" >> "$stats_compress_tmp"
+
+	rm -f "$_temp_compressed"
+	echo "$_compressed_data"
+}
+
+# Advanced HTML minification with careful preservation of styling
+function minify_html_with_preserved_styling() {
+	local _input_file="$1"
+	local _output_file="$2"
+	local _original_filename="$3"
+
+	if [ $html_minifier_available -eq 1 ]; then
+		node -e "
+		const fs = require('fs');
+		const path = require('path');
+		const configDir = '$config_dir';
+		(async function() {
+			try {
+				let htmlMinifier;
+				try {
+					htmlMinifier = require('html-minifier');
+				} catch (e) {
+					htmlMinifier = require('html-minifier-terser');
+				}
+				const config = JSON.parse(fs.readFileSync(path.join(configDir, 'html-minifier.config.json'), 'utf8'));
+				const content = fs.readFileSync('$_input_file', 'utf8');
+				const result = await htmlMinifier.minify(content, config);
+				let finalResult = result.replace(/\r\n|\n|\r/g, '').trim();
+				finalResult = finalResult.replace(/>(\s+)([a-zA-Z0-9])/g, '>\$2');
+				finalResult = finalResult.replace(/>(\s+)</g, '><');
+				fs.writeFileSync('$_output_file', finalResult);
+			} catch (e) {
+				fs.copyFileSync('$_input_file', '$_output_file');
+			}
+		})().catch(e => {
+			fs.copyFileSync('$_input_file', '$_output_file');
+		});" 2>/dev/null || true
+	else
+		cp "$_input_file" "$_output_file"
+	fi
+
+	if [ $debug_mode -eq 1 ] && [ -n "$_original_filename" ]; then
+		local debug_filename="$(basename "$_original_filename")"
+		cp "$_output_file" "$minified_dir/$debug_filename"
+	fi
+}
+
+# Separate JS minification for standalone JS files
+function minify_standalone_js() {
+	local _input_file="$1"
+	local _output_file="$2"
+	local _original_filename="$3"
+
+	if [ $js_minifier_available -eq 1 ]; then
+		node -e "
+		(async function() {
+			try {
+				var Terser = require('terser');
+				var fs = require('fs');
+				var path = require('path');
+				var configDir = '$config_dir';
+				var config = JSON.parse(fs.readFileSync(path.join(configDir, 'terser.config.json'), 'utf8'));
+				var content = fs.readFileSync('$_input_file', 'utf8');
+				var result = await Terser.minify(content, config);
+				if (result.code) {
+					fs.writeFileSync('$_output_file', result.code);
+				} else {
+					throw new Error('Minification failed');
+				}
+			} catch(e) {
+				fs.copyFileSync('$_input_file', '$_output_file');
+			}
+		})().catch(e => {
+			fs.copyFileSync('$_input_file', '$_output_file');
+		});
+		" 2>/dev/null || true
+	else
+		cp "$_input_file" "$_output_file"
+	fi
+
+	if [ $debug_mode -eq 1 ] && [ -n "$_original_filename" ]; then
+		local debug_filename="$(basename "$_original_filename")"
+		cp "$_output_file" "$minified_dir/$debug_filename"
+	fi
+}
+
+# Advanced CSS minification for standalone CSS files
+function minify_standalone_css() {
+	local _input_file="$1"
+	local _output_file="$2"
+	local _original_filename="$3"
+
+	if [ $css_minifier_available -eq 1 ]; then
+		node -e "
+		try {
+			var CleanCSS = require('clean-css');
+			var fs = require('fs');
+			var path = require('path');
+			var configDir = '$config_dir';
+			var content = fs.readFileSync('$_input_file', 'utf8');
+			var config = JSON.parse(fs.readFileSync(path.join(configDir, 'clean-css.config.json'), 'utf8'));
+			var result = new CleanCSS(config).minify(content);
+			if (result.styles) {
+				fs.writeFileSync('$_output_file', result.styles);
+			} else {
+				throw new Error('Minification failed');
+			}
+		} catch(e) {
+			fs.copyFileSync('$_input_file', '$_output_file');
+		}
+		" 2>/dev/null || true
+	else
+		cp "$_input_file" "$_output_file"
+	fi
+
+	if [ $debug_mode -eq 1 ] && [ -n "$_original_filename" ]; then
+		local debug_filename="$(basename "$_original_filename")"
+		cp "$_output_file" "$minified_dir/$debug_filename"
+	fi
+}
+
+# $1 -> file path, $2 -> original size (before rename), $3 -> renamed size
+function print_data_array() {
+	local _file_path="$1"
+	local _file_orig_size="${2:-0}"
+	local _file_renamed_size="${3:-0}"
+	local _file_ext="${_file_path##*.}"
+	local _file_name="${_file_path##*/}"
+	local _file_name_no_ext="${_file_name%\.*}"
+	local _file_content=""
+	local _is_compressed=0
+	local _temp_minified=""
+
+	# Open variable declaration
+	echo -n "static const char data_${_file_name_no_ext}_${_file_ext}[] = {" >> "$files_content_tmp"
+
+	# HTTP header (200 OK or 404 Not Found)
+	if [ "$_file_name_no_ext" == "404" ]; then
+		ascii_to_bytes "HTTP/1.0 404 File not found\r\n" >> "$files_content_tmp"
+	else
+		ascii_to_bytes "HTTP/1.0 200 OK\r\n" >> "$files_content_tmp"
+	fi
+	echo -n "," >> "$files_content_tmp"
+
+	# Content - Process with dedicated tools and then compress
+	case "$_file_ext" in
+		css)
+			_input_size=$([ $_file_renamed_size -gt 0 ] && echo $_file_renamed_size || echo $(stat -c%s "$_file_path" 2>/dev/null || stat -f %z "$_file_path" 2>/dev/null))
+			_temp_minified=$(mktemp)
+			minify_standalone_css "$_file_path" "$_temp_minified" "$_file_name"
+			_minified_size=$(stat -c%s "$_temp_minified" 2>/dev/null || stat -f %z "$_temp_minified" 2>/dev/null)
+			echo "$_file_name $_input_size $_minified_size" >> "$stats_minify_tmp"
+			_file_content=$(compress_and_convert "$_temp_minified" "$_file_name" "$_minified_size")
+			_is_compressed=1
+			ascii_to_bytes "Content-type: text/css; charset=utf-8\r\nCache-Control: no-cache\r\n" >> "$files_content_tmp"
+			;;
+		js)
+			_input_size=$([ $_file_renamed_size -gt 0 ] && echo $_file_renamed_size || echo $(stat -c%s "$_file_path" 2>/dev/null || stat -f %z "$_file_path" 2>/dev/null))
+			_temp_minified=$(mktemp)
+			minify_standalone_js "$_file_path" "$_temp_minified" "$_file_name"
+			_minified_size=$(stat -c%s "$_temp_minified" 2>/dev/null || stat -f %z "$_temp_minified" 2>/dev/null)
+			echo "$_file_name $_input_size $_minified_size" >> "$stats_minify_tmp"
+			_file_content=$(compress_and_convert "$_temp_minified" "$_file_name" "$_minified_size")
+			_is_compressed=1
+			ascii_to_bytes "Content-Type: application/javascript\r\nCache-Control: no-cache\r\n" >> "$files_content_tmp"
+			;;
+		html|htm)
+			_input_size=$([ $_file_renamed_size -gt 0 ] && echo $_file_renamed_size || echo $(stat -c%s "$_file_path" 2>/dev/null || stat -f %z "$_file_path" 2>/dev/null))
+			_temp_minified=$(mktemp)
+			minify_html_with_preserved_styling "$_file_path" "$_temp_minified" "$_file_name"
+			_minified_size=$(stat -c%s "$_temp_minified" 2>/dev/null || stat -f %z "$_temp_minified" 2>/dev/null)
+			echo "$_file_name $_input_size $_minified_size" >> "$stats_minify_tmp"
+			_file_content=$(compress_and_convert "$_temp_minified" "$_file_name" "$_minified_size")
+			_is_compressed=1
+			ascii_to_bytes "Content-type: text/html; charset=utf-8\r\nCache-Control: no-cache\r\n" >> "$files_content_tmp"
+			;;
+		png|jpg|jpeg|gif)
+			_orig_size=$(stat -c%s "$_file_path" 2>/dev/null || stat -f %z "$_file_path" 2>/dev/null)
+			echo "$_file_name $_orig_size $_orig_size" >> "$stats_minify_tmp"
+			_file_content=$(compress_and_convert "$_file_path" "$_file_name" "$_orig_size")
+			_comp_size=$(echo "$_file_content" | tr -d '0x,' | wc -c)
+			_comp_size=$((_comp_size / 2))
+			if [ $_comp_size -lt $_orig_size ]; then
+				_is_compressed=1
+			else
+				_is_compressed=0
+				_file_content=$(cat "$_file_path" | od -A n -t x1 | tr -d '\n\r ' | sed 's/../0x&,/g;s/,$//')
+			fi
+			case "$_file_ext" in
+				png)  ascii_to_bytes "Content-Type: image/png\r\n" >> "$files_content_tmp" ;;
+				jpg|jpeg) ascii_to_bytes "Content-Type: image/jpeg\r\n" >> "$files_content_tmp" ;;
+				gif)  ascii_to_bytes "Content-Type: image/gif\r\n" >> "$files_content_tmp" ;;
+			esac
+			;;
+		ico|svg)
+			if [ "$_file_ext" = "svg" ]; then
+				_input_size=$([ $_file_renamed_size -gt 0 ] && echo $_file_renamed_size || echo $(stat -c%s "$_file_path" 2>/dev/null || stat -f %z "$_file_path" 2>/dev/null))
+				_temp_minified=$(mktemp)
+				minify_svg "$_file_path" "$_temp_minified" "$_file_name"
+				_minified_size=$(stat -c%s "$_temp_minified" 2>/dev/null || stat -f %z "$_temp_minified" 2>/dev/null)
+				echo "$_file_name $_input_size $_minified_size" >> "$stats_minify_tmp"
+				_file_content=$(compress_and_convert "$_temp_minified" "$_file_name" "$_minified_size")
+			else
+				_orig_size=$(stat -c%s "$_file_path" 2>/dev/null || stat -f %z "$_file_path" 2>/dev/null)
+				echo "$_file_name $_orig_size $_orig_size" >> "$stats_minify_tmp"
+				_file_content=$(compress_and_convert "$_file_path" "$_file_name" "$_orig_size")
+			fi
+			_is_compressed=1
+			case "$_file_ext" in
+				ico)  ascii_to_bytes "Content-Type: image/x-icon\r\n" >> "$files_content_tmp" ;;
+				svg)  ascii_to_bytes "Cache-Control: max-age=300\r\nContent-Type: image/svg+xml; charset=utf-8\r\n" >> "$files_content_tmp" ;;
+			esac
+			;;
+		*)
+			_orig_size=$(stat -c%s "$_file_path" 2>/dev/null || stat -f %z "$_file_path" 2>/dev/null)
+			echo "$_file_name $_orig_size $_orig_size" >> "$stats_minify_tmp"
+			_file_content=$(compress_and_convert "$_file_path" "$_file_name" "$_orig_size")
+			_is_compressed=1
+			ascii_to_bytes "Content-type: text/plain; charset=UTF-8\r\n" >> "$files_content_tmp"
+			;;
+	esac
+
+	# Add Content-Encoding header if compressed
+	if [ $_is_compressed -eq 1 ]; then
+		echo -n "," >> "$files_content_tmp"
+		ascii_to_bytes "Content-Encoding: gzip\r\n" >> "$files_content_tmp"
+	fi
+
+	echo -n "," >> "$files_content_tmp"
+	ascii_to_bytes "\r\n" >> "$files_content_tmp"
+	echo -n "," >> "$files_content_tmp"
+
+	# File content
+	echo -n "$_file_content" >> "$files_content_tmp"
+
+	# And close declaration
+	echo -n ",0};" >> "$files_content_tmp"
+
+	# Add a newline after each data array
+	echo "" >> "$files_content_tmp"
+
+	# Clean up temporary files
+	[ -n "$_temp_minified" ] && rm -f "$_temp_minified"
+}
+
+# $1 -> file path
+function print_data_struct() {
+	local _file_ext="${1##*.}"
+	local _file_name="${1##*/}"
+	local _file_name_no_ext="${_file_name%\.*}"
+
+	echo -n "const struct fsdata_file file_${_file_name_no_ext}_${_file_ext}[]={{$prev_fsdata_struct,\"/$_file_name_no_ext.$_file_ext\",data_${_file_name_no_ext}_${_file_ext},(int)sizeof(data_${_file_name_no_ext}_${_file_ext})-1}};" >> "$files_list_tmp"
+	echo "" >> "$files_list_tmp"
+
+	prev_fsdata_struct="file_${_file_name_no_ext}_${_file_ext}"
+}
+
+# === Main loop ===
+
+if [ -d "html/$vendor_dir" ]; then
+	# Remove old fsdata.c
+	[ -f "fsdata.c" ] && rm -f "fsdata.c"
+
+	# Create temporary files
+	touch "$files_content_tmp" "$files_list_tmp" "$stats_rename_tmp" "$stats_minify_tmp" "$stats_compress_tmp"
+
+	# Apply class renaming if enabled
+	source_dir="html/$vendor_dir"
+	renamed_dir=""
+	orig_dir="html/$vendor_dir"
+	if [ $rename_classes -eq 1 ] && [ $rename_available -eq 1 ]; then
+		renamed_dir="html/debug_output/rename_classes"
+		rm -rf "$renamed_dir"
+		if node html/rename_classes.js "$source_dir" "$renamed_dir" "$config_dir/rename-classes.config.json" 2>/dev/null; then
+			source_dir="$renamed_dir"
+		else
+			rm -rf "$renamed_dir"
+			renamed_dir=""
+		fi
+	fi
+
+	# Loop through all files in vendor dir (sort for consistency)
+	files_processed=0
+	for file in $(ls -1 "$source_dir"/* 2>/dev/null | sort); do
+		if [ -f "$file" ]; then
+			file_name="${file##*/}"
+			orig_file="$orig_dir/$file_name"
+			_file_orig_size=$(stat -c%s "$file" 2>/dev/null || stat -f %z "$file" 2>/dev/null)
+			_file_renamed_size=0
+			if [ -n "$renamed_dir" ] && [ -f "$orig_file" ]; then
+				_file_orig_size=$(stat -c%s "$orig_file" 2>/dev/null || stat -f %z "$orig_file" 2>/dev/null)
+				_file_renamed_size=$(stat -c%s "$file" 2>/dev/null || stat -f %z "$file" 2>/dev/null)
+				echo "$file_name $_file_orig_size $_file_renamed_size" >> "$stats_rename_tmp"
+			fi
+			print_data_array "$file" "$_file_orig_size" "$_file_renamed_size"
+			print_data_struct "$file"
+			files_processed=$((files_processed+1))
+		fi
+	done
+
+	if [ $files_processed -eq 0 ]; then
+		echo "Error: No files found in html/$vendor_dir" >&2
+		rm -f "$files_content_tmp" "$files_list_tmp" "$stats_rename_tmp" "$stats_minify_tmp" "$stats_compress_tmp"
+		exit 1
+	fi
+
+	# Add required defines
+	echo "#define FS_ROOT $prev_fsdata_struct" >> "$files_list_tmp"
+	echo "#define FS_NUMFILES $files_processed" >> "$files_list_tmp"
+
+	# Generate new fsdata.c
+	echo "#include <common.h>" > "fsdata.c"
+	cat "$files_content_tmp" >> "fsdata.c"
+	cat "$files_list_tmp" >> "fsdata.c"
+
+	# Clean up
+	rm -f "$files_content_tmp" "$files_list_tmp"
+
+	# Clean up renamed directory
+	if [ -n "$renamed_dir" ] && [ -d "$renamed_dir" ]; then
+		[ $debug_mode -eq 0 ] && rm -rf "$renamed_dir"
+	fi
+
+	# Show output summary
+	if [ -f "fsdata.c" ]; then
+		echo "Generated fsdata.c: $files_processed files, $(wc -l < fsdata.c) lines, $(du -h fsdata.c | cut -f1)" >&2
+	fi
+
+	# Show file size comparison per stage
+	print_merged_stats
+
+	rm -f "$stats_rename_tmp" "$stats_minify_tmp" "$stats_compress_tmp"
+else
+	echo "Error: Vendor directory html/$vendor_dir does not exist!" >&2
+	exit 1
+fi

@@ -7,6 +7,7 @@
 #include <asm-generic/global_data.h>
 #include <asm/arch-qca-common/smem.h>
 #include <part.h>
+#include <part_efi.h>
 #include <mmc.h>
 #include <miiphy.h>
 #include <linux/mii.h>
@@ -26,7 +27,7 @@ DECLARE_GLOBAL_DATA_PTR;
  * GPIO helper - resolve GPIO number from FDT path or environment variable
  * ----------------------------------------------------------------------- */
 
-static int fdt_find_gpio_node(const char *gpio_name) {
+int fdt_find_gpio_node(const char *gpio_name) {
 	int node = fdt_path_offset(gd->fdt_blob, gpio_name);
 	if (node >= 0)
 		return node;
@@ -39,7 +40,7 @@ static int fdt_find_gpio_node(const char *gpio_name) {
 	return fdt_path_offset(gd->fdt_blob, path);
 }
 
-static int fdt_get_gpio_number(const char *gpio_name) {
+int fdt_get_gpio_number(const char *gpio_name) {
 	char *endp;
 	ulong num = simple_strtoul(gpio_name, &endp, 10);
 	if (*endp == '\0' && endp != gpio_name)
@@ -187,17 +188,17 @@ bool btn_is_pressed(const char *gpio_name, int value) {
 /**
  * Configure a GPIO as input with pull-up
  */
-static void gpio_input_pullup(int gpio) {
+static void gpio_input_config(int gpio, unsigned int pull) {
 	struct qca_gpio_config cfg = {
 		.gpio = gpio, .func = 0, .out = 0,
-		.pull = GPIO_PULL_UP, .drvstr = GPIO_8MA,
+		.pull = pull, .drvstr = GPIO_8MA,
 		.oe = GPIO_OE_DISABLE, .vm = 0, .od_en = 0, .pu_res = 0, .sr_en = 0
 	};
 	gpio_tlmm_config(&cfg);
 }
 
 static void btn_init_gpio(int gpio, const char *name, const char *source) {
-	gpio_input_pullup(gpio);
+	gpio_input_config(gpio, GPIO_PULL_UP);
 	mdelay(50);
 	int value = gpio_get_value(gpio);
 	printf("GPIO%d: %s%s\n", gpio, name, value == RESET_BUTTON_PRESSED ? " pressed" : strcmp(source, "env") == 0 ? " (env)" : "");
@@ -211,18 +212,23 @@ void btn_init_by_name(const char *gpio_name) {
 	btn_init_gpio(gpio, gpio_name, "fdt");
 }
 
-static int env_reset_gpio(void) {
-	static int gpio = -2;
-	if (gpio == -2) {
+static int env_reset_gpio_cached = -2;
+
+int env_reset_gpio(void) {
+	if (env_reset_gpio_cached == -2) {
 		char *val = getenv("reset_key");
 		if (val) {
-			gpio = simple_strtoul(val, NULL, 10);
-			btn_init_gpio(gpio, "reset_key", "env");
+			env_reset_gpio_cached = simple_strtoul(val, NULL, 10);
+			btn_init_gpio(env_reset_gpio_cached, "reset_key", "env");
 		} else {
-			gpio = -1;
+			env_reset_gpio_cached = -1;
 		}
 	}
-	return gpio;
+	return env_reset_gpio_cached;
+}
+
+void env_reset_gpio_invalidate(void) {
+	env_reset_gpio_cached = -2;
 }
 
 static bool btn_pressed(char *name, int name_len) {
@@ -313,38 +319,59 @@ void btn_check_press(void) {
  * U-Boot command - gpio: control LED/GPIO via DTS name or env
  * ----------------------------------------------------------------------- */
 
-static void fdt_list_gpio(int node, const char *parent) {
+static void fdt_list_gpio_by_node(int node, const char *parent,
+	void (*cb)(int gpio, const char *name, const char *dir, int value, const char *parent, void *ctx),
+	void *ctx) {
 	int subnode;
 	fdt_for_each_subnode(gd->fdt_blob, subnode, node) {
 		int gpio = fdtdec_get_uint(gd->fdt_blob, subnode, "gpio", -1);
 		if (gpio >= 0) {
 			int value = gpio_get_value(gpio);
 			unsigned int cfg = readl(GPIO_CONFIG_ADDR(gpio));
-			printf("GPIO%d %s value=%d  %s/%s\n", gpio,
-				(cfg & (1 << 9)) ? "out" : "in", value,
-				parent, fdt_get_name(gd->fdt_blob, subnode, NULL));
+			const char *name = fdt_get_name(gd->fdt_blob, subnode, NULL);
+			cb(gpio, name ? name : "?", (cfg & (1 << 9)) ? "out" : "in", value, parent, ctx);
 		}
-		fdt_list_gpio(subnode, fdt_get_name(gd->fdt_blob, subnode, NULL));
+		fdt_list_gpio_by_node(subnode, fdt_get_name(gd->fdt_blob, subnode, NULL), cb, ctx);
 	}
 }
 
-#ifdef CONFIG_IPQ6018
-#define GPIO_MAX 80
-#elif defined(CONFIG_IPQ40XX) || defined(CONFIG_IPQ807X) || defined(CONFIG_IPQ806X)
-#define GPIO_MAX 68
-#elif defined(CONFIG_IPQ5332)
-#define GPIO_MAX 52
-#elif defined(CONFIG_IPQ5018)
-#define GPIO_MAX 47
-#elif defined(CONFIG_IPQ9574)
-#define GPIO_MAX 62
-#endif
+void fdt_list_gpio(const char *path, const char *parent,
+	void (*cb)(int gpio, const char *name, const char *dir, int value, const char *parent, void *ctx),
+	void *ctx) {
+	int node = fdt_path_offset(gd->fdt_blob, path);
+	if (node >= 0)
+		fdt_list_gpio_by_node(node, parent, cb, ctx);
+}
+
+struct gpio_parent_ctx {
+	int target;
+	const char *parent;
+};
+
+static void gpio_find_parent_cb(int gpio, const char *name, const char *dir,
+	int value, const char *parent, void *ctx) {
+	struct gpio_parent_ctx *c = ctx;
+	if (gpio == c->target && !c->parent)
+		c->parent = parent;
+}
+
+static const char *gpio_get_parent_name(int gpio) {
+	struct gpio_parent_ctx ctx = { gpio, NULL };
+	fdt_list_gpio("/", "", gpio_find_parent_cb, &ctx);
+	return ctx.parent;
+}
 
 static void gpio_detect(void) {
 	int i, values[GPIO_MAX];
 	printf("Detecting GPIO 0-%d input pins...\n", GPIO_MAX - 1);
 	for (i = 0; i < GPIO_MAX; i++) {
 		unsigned int cfg = readl(GPIO_CONFIG_ADDR(i));
+#if defined(CONFIG_IPQ6018) && defined(CONFIG_QCA_MMC)
+		if (i == 20) {
+			values[i] = -1;
+			continue;
+		}
+#endif
 		if ((cfg & 0x1C) || (cfg & (1 << 9)))
 			values[i] = -1;
 		else
@@ -366,11 +393,13 @@ static void gpio_detect(void) {
 	}
 }
 
+static void gpio_printf_cb(int gpio, const char *name, const char *dir, int value, const char *parent, void *ctx) {
+	printf("GPIO%d %s value=%d  %s/%s\n", gpio, dir, value, parent, name);
+}
+
 static int do_gpio_cmd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]) {
 	if (argc < 2) {
-		int root = fdt_path_offset(gd->fdt_blob, "/");
-		if (root >= 0)
-			fdt_list_gpio(root, "");
+		fdt_list_gpio("/", "", gpio_printf_cb, NULL);
 		return CMD_RET_USAGE;
 	}
 	if (strcmp(argv[1], "d") == 0) {
@@ -388,13 +417,34 @@ static int do_gpio_cmd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]
 		printf("GPIO%d %s value=%d\n", gpio, (cfg & (1 << 9)) ? "out" : "in", value);
 		return 0;
 	}
+	const char *parent = gpio_get_parent_name(gpio);
+	if (parent && strcmp(parent, "led_gpio") != 0 && strcmp(parent, "key_gpio") != 0) {
+		printf("GPIO%d [%s] is critical, operation blocked\n", gpio, parent);
+		return 1;
+	}
 	const char *op = argv[2];
 	struct qca_gpio_config cfg = {
 		.gpio = gpio, .func = 0, .out = 1,
 		.pull = GPIO_NO_PULL, .drvstr = GPIO_8MA,
 		.oe = GPIO_OE_ENABLE, .vm = 0, .od_en = 0, .pu_res = 0, .sr_en = 0
 	};
+	if (strcmp(op, "in") == 0) {
+		unsigned int pull = GPIO_NO_PULL;
+		if (argc >= 4) {
+			pull = !strcmp(argv[3], "up") ? GPIO_PULL_UP :
+			       !strcmp(argv[3], "down") ? GPIO_PULL_DOWN :
+			       !strcmp(argv[3], "none") ? GPIO_NO_PULL : -1U;
+			if (pull == -1U)
+				return CMD_RET_USAGE;
+		}
+		gpio_input_config(gpio, pull);
+		return 0;
+	}
 	gpio_tlmm_config(&cfg);
+	if (strcmp(op, "out") == 0) {
+		gpio_set_value(gpio, argc >= 4 ? !!simple_strtoul(argv[3], NULL, 10) : 0);
+		return 0;
+	}
 	if (strcmp(op, "on") == 0)
 		gpio_set_value(gpio, 1);
 	else if (strcmp(op, "off") == 0)
@@ -413,7 +463,9 @@ static int do_gpio_cmd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]
 U_BOOT_CMD(gpio, 4, 0, do_gpio_cmd,
 	"control LED/GPIO via FDT name or env",
 	"<name|num> - show GPIO status\n"
-	"gpio <name> on|off|t(oggle)|b(link) <sec>\n"
+	"gpio <name> in [up|down|none]\n"
+	"gpio <name> out|on|off|t [0|1|<sec>]\n"
+	"gpio <name> b <sec>\n"
 	"gpio d - detect button\n"
 );
 
@@ -422,60 +474,47 @@ U_BOOT_CMD(gpio, 4, 0, do_gpio_cmd,
  * ----------------------------------------------------------------------- */
 
 struct fw_info check_fw_type_ex(void *address) {
-	typedef unsigned int u32;
-	typedef unsigned short u16;
+	typedef uint32_t u32;
+	typedef uint16_t u16;
 
 	struct fw_info info = {
 		.type = -1,
-		.hlos_size = 12 * 1024 * 1024  // Default 12MB
+		.hlos_size = 16 * 1024 * 1024  // Default 16MiB (max, fallback)
 	};
 
 	u32 *ptr_flas		= (u32 *)((uintptr_t)address + 0x5c);
-	u16 *ptr_55aa		= (u16 *)((uintptr_t)address + 0x1fe);
+	u16 *ptr_gpt		= (u16 *)((uintptr_t)address + 0x1fe);   /* Primary GPT: MBR 0xAA55 */
 	u32 *ptr_doodfeed	= (u32 *)address;
 	u32 *ptr_ubi		= (u32 *)address;
 	u32 *ptr_cdt		= (u32 *)address;
 	u32 *ptr_elf		= (u32 *)address;
 	u32 *ptr_mibib		= (u32 *)address;
-
-	// Detect HLOS size magic number positions
-	u32 *ptr_hlos_4m	= (u32 *)((uintptr_t)address + 0x400000);
-	u32 *ptr_hlos_6m	= (u32 *)((uintptr_t)address + 0x600000);
-	u32 *ptr_hlos_8m	= (u32 *)((uintptr_t)address + 0x800000);
-	u32 *ptr_hlos_12m	= (u32 *)((uintptr_t)address + 0xC00000);
-	u32 *ptr_hlos_14m	= (u32 *)((uintptr_t)address + 0xE00000);
-	u32 *ptr_hlos_16m	= (u32 *)((uintptr_t)address + 0x1000000);
+	u32 *ptr_gpt_backup	= (u32 *)((uintptr_t)address + 0x4000);  /* Backup GPT: "EFI " */
 
 	const u32 MAGIC_HSQS = 0x73717368;  // "hsqs"
+	const int HLOS_SIZE_MIN_KB  = 2048;   // 2MiB
+	const int HLOS_SIZE_MAX_KB  = 16384;  // 16MiB
+	const int HLOS_SIZE_STEP_KB = 512;    // 512KiB step (eMMC partition aligned)
 
-	// Detect actual HLOS size in ascending order
-	if (*ptr_hlos_4m == MAGIC_HSQS) {
-		info.hlos_size = 4 * 1024 * 1024;
-	}
-	else if (*ptr_hlos_6m == MAGIC_HSQS) {
-		info.hlos_size = 6 * 1024 * 1024;
-	}
-	else if (*ptr_hlos_8m == MAGIC_HSQS) {
-		info.hlos_size = 8 * 1024 * 1024;
-	}
-	else if (*ptr_hlos_12m == MAGIC_HSQS) {
-		info.hlos_size = 12 * 1024 * 1024;
-	}
-	else if (*ptr_hlos_14m == MAGIC_HSQS) {
-		info.hlos_size = 14 * 1024 * 1024;
-	}
-	else if (*ptr_hlos_16m == MAGIC_HSQS) {
-		info.hlos_size = 16 * 1024 * 1024;
+	for (int kb = HLOS_SIZE_MIN_KB; kb <= HLOS_SIZE_MAX_KB; kb += HLOS_SIZE_STEP_KB) {
+		u32 *ptr = (u32 *)((uintptr_t)address + (u32)kb * 1024);
+		if (*ptr == MAGIC_HSQS) {
+			info.hlos_size = (unsigned long)kb * 1024;
+			break;
+		}
 	}
 
 	// Detect firmware type
 	if (*ptr_flas == 0x73616c46) info.type			= FW_TYPE_QSDK;
 	else if (*ptr_ubi == 0x23494255) info.type		= FW_TYPE_UBI;
 	else if (*ptr_doodfeed == 0xedfe0dd0) info.type	= FW_TYPE_FIT;
-	else if (*ptr_55aa == 0xaa55) info.type			= FW_TYPE_GPT;
+	else if ((*ptr_gpt == 0xaa55) || (*ptr_gpt_backup == 0x20494645)) info.type = FW_TYPE_GPT;  /* GPT: Primary(MBR) or Backup("EFI ") */
 	else if (*ptr_cdt == 0x00544443) info.type		= FW_TYPE_CDT;
 	else if (*ptr_elf == 0x464c457f) info.type		= FW_TYPE_ELF;
-	else if (*ptr_mibib == 0xfe569fac) info.type	= FW_TYPE_MIBIB;
+	else if (*ptr_mibib == 0xfe569fac) info.type		= FW_TYPE_MIBIB;
+	else if (memcmp(address, "sysupgrade", 10) == 0) {
+		info.type = FW_TYPE_SYSUPGRADE;
+	}
 	else info.type = -1;
 
 	return info;
@@ -490,7 +529,7 @@ int check_fw_type(void *address) {
  * Partition - SMEM/GPT partition size and offset queries for webfailsafe
  * ----------------------------------------------------------------------- */
 
-unsigned long get_smem_table_size_bytes(const char *name) {
+u64 get_smem_table_size_bytes(const char *name) {
 	uint32_t offset, byte_size;
 	int ret;
 	/* First, try the traditional SMEM methods */
@@ -500,11 +539,10 @@ unsigned long get_smem_table_size_bytes(const char *name) {
 	}
 #if defined(CONFIG_EFI_PARTITION) && defined(CONFIG_PARTITIONS) && defined(CONFIG_CMD_MMC)
 	/* If SMEM methods fail, try getting flash type to determine if it's EMMC */
-	uint32_t flash_type, flash_index, flash_chip_select, flash_block_size, flash_density;
-	ret = smem_get_boot_flash(&flash_type, &flash_index, &flash_chip_select, &flash_block_size, &flash_density);
+	uint32_t flash_type;
+	ret = get_current_flash_type(&flash_type);
 	/* If it's an EMMC device, try getting partition info from GPT */
-	if (ret == 0 && (flash_type == SMEM_BOOT_MMC_FLASH ||
-			qca_smem_flash_info.rootfs.offset == 0xBAD0FF5E)) {
+	if (ret == 0 && (flash_type == SMEM_BOOT_MMC_FLASH || flash_type == SMEM_BOOT_NORPLUSEMMC || qca_smem_flash_info.rootfs.offset == 0xBAD0FF5E)) {
 		block_dev_desc_t *mmc_dev;
 		disk_partition_t disk_info;
 		/* Get the MMC device */
@@ -513,8 +551,7 @@ unsigned long get_smem_table_size_bytes(const char *name) {
 			/* Try to get partition info from GPT by name */
 			ret = get_partition_info_efi_by_name(mmc_dev, name, &disk_info);
 			if (ret == 0) {
-				/* Successfully got partition info from GPT, return size in bytes */
-				return (unsigned long)disk_info.size * (unsigned long)mmc_dev->blksz;
+				return (u64)disk_info.size * (u64)mmc_dev->blksz;
 			}
 		}
 	}
@@ -525,7 +562,7 @@ unsigned long get_smem_table_size_bytes(const char *name) {
 
 /* define macro for get size function */
 #define DEFINE_GET_SIZE_FUNC(func_name, partition_name) \
-	unsigned long func_name(void) { \
+	u64 func_name(void) { \
 		return get_smem_table_size_bytes(partition_name); \
 	}
 
@@ -536,7 +573,11 @@ DEFINE_GET_SIZE_FUNC(get_cdt_size, "0:CDT")
 DEFINE_GET_SIZE_FUNC(get_mibib_size, "0:MIBIB")
 DEFINE_GET_SIZE_FUNC(get_bootconfig_size, "0:BOOTCONFIG")
 
-unsigned long get_firmware_upgrade_max_size(void) {
+u64 get_initramfs_max_size(void) {
+	return CONFIG_SYS_BOOTM_LEN;
+}
+
+u64 get_firmware_upgrade_max_size(void) {
 	uint32_t flash_type;
 	if (get_current_flash_type(&flash_type) != 0)
 		return 0;
@@ -562,8 +603,8 @@ unsigned long get_firmware_upgrade_max_size(void) {
 }
 
 /* Function to get firmware size supporting multiple rootfs partition names */
-unsigned long get_firmware_size(void) {
-	unsigned long size;
+u64 get_firmware_size(void) {
+	u64 size;
 	/* Try different possible rootfs partition names in priority order */
 	/* Priority order: rootfs -> rootfs1 -> rootfs2 -> rootfs_1 */
 	size = get_smem_table_size_bytes("rootfs");
@@ -583,7 +624,7 @@ unsigned long get_firmware_size(void) {
 }
 
 /* Get the offset start information from the smem table */
-unsigned long get_smem_table_offset(const char *name) {
+u64 get_smem_table_offset(const char *name) {
 	uint32_t offset, byte_size;
 	if (getpart_offset_size((char *)name, &offset, &byte_size) == 0) {
 		return (unsigned long)offset;
@@ -592,15 +633,15 @@ unsigned long get_smem_table_offset(const char *name) {
 }
 
 /* Get the combined size of the NOR firmware (kernel + rootfs) */
-unsigned long get_nor_firmware_combined_size(void) {
-	unsigned long kernel_size = get_smem_table_size_bytes("0:HLOS");
-	unsigned long rootfs_size = get_smem_table_size_bytes("rootfs");
+u64 get_nor_firmware_combined_size(void) {
+	u64 kernel_size = get_smem_table_size_bytes("0:HLOS");
+	u64 rootfs_size = get_smem_table_size_bytes("rootfs");
 	return kernel_size + rootfs_size;
 }
 
 /* define macro for get offset function */
 #define DEFINE_GET_OFFSET_FUNC(func_name, partition_name) \
-	unsigned long func_name(void) { \
+	u64 func_name(void) { \
 		return get_smem_table_offset(partition_name); \
 	}
 
@@ -631,8 +672,8 @@ int emmc_calculate_firmware_distribution(unsigned long firmware_size,
 	return 0;
 }
 
-unsigned long get_bootconfig_offset_blocks(void) { return get_bootconfig_offset() / 512; }
-unsigned long get_bootconfig_size_blocks(void)   { return get_bootconfig_size() / 512; }
+u64 get_bootconfig_offset_blocks(void) { return get_bootconfig_offset() / 512; }
+u64 get_bootconfig_size_blocks(void)   { return get_bootconfig_size() / 512; }
 
 unsigned long get_hlos_size_bytes(void)     { return PART_SIZE_BYTES("0:HLOS"); }
 unsigned long get_hlos_start_block(void)    { return PART_START_BLOCK("0:HLOS"); }
@@ -708,12 +749,24 @@ int eth_check_link_change(void) {
 		return 0;
 
 #if defined(CONFIG_IPQ807X) || defined(CONFIG_IPQ6018) || defined(CONFIG_IPQ9574)
-	for (i = 0; i < PHY_PORT_MAX; i++) {
-		if (!phy_info[i] || phy_info[i]->phy_type == UNUSED_PHY_TYPE || phy_info[i]->phy_type == SFP_PHY_TYPE)
-			continue;
-		if (read_phy_link(devname, phy_info[i]->phy_address)) {
-			link_port = i;
-			break;
+	{
+		int has_phy_info = 0;
+		for (i = 0; i < PHY_PORT_MAX; i++) {
+			if (phy_info[i] && phy_info[i]->phy_type != UNUSED_PHY_TYPE && phy_info[i]->phy_type != SFP_PHY_TYPE) {
+				has_phy_info = 1;
+				if (read_phy_link(devname, phy_info[i]->phy_address)) {
+					link_port = i;
+					break;
+				}
+			}
+		}
+		if (!has_phy_info) {
+			for (i = 0; i < PHY_MAX_ADDR; i++) {
+				if (read_phy_link(devname, i)) {
+					link_port = i;
+					break;
+				}
+			}
 		}
 	}
 #elif defined(CONFIG_IPQ5018)

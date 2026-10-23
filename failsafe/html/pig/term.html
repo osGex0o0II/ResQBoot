@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>终端变量</title>
+	<script src="common.js?v=f"></script>
+	<link rel="stylesheet" href="style.css?v=f">
+</head>
+<body class="iframe-content">
+	<div class="card">
+		<h2><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-terminal"/></svg>终端变量</h2>
+		<div class="terminal-container">
+			<a href="term.html" target="_blank" class="terminal-expand" id="expandBtn" title="独立窗口打开">⧉</a>
+			<div class="terminal-output-wrapper">
+				<div class="terminal-output" id="terminalOutput"></div>
+				<span class="terminal-status-bottom" id="connectionStatus">✗</span>
+			</div>
+			<div class="terminal-input-line">
+				<span class="terminal-prompt">></span>
+				<input type="text" class="terminal-input" id="terminalInput" placeholder="输入命令或变量名" autofocus>
+				<button class="terminal-btn" id="sendBtn">发送</button>
+				<button class="terminal-btn" id="abortBtn">中断</button>
+				<button class="terminal-btn terminal-clear" id="clearBtn">清屏</button>
+				<button class="terminal-btn active" id="rebootDev">重启</button>
+				<button class="terminal-btn active" id="envToggle">折叠</button>
+				<div class="terminal-dropdown-menu" id="envMenu">
+					<button class="terminal-btn active" id="queryEnv">查询</button>
+					<button class="terminal-btn" id="updateEnv">修改</button>
+					<button class="terminal-btn" id="deleteEnv">删除</button>
+					<button class="terminal-btn active" id="resetEnv">重置</button>
+				</div>
+			</div>
+		</div>
+	</div>
+	<script>
+(function () {
+	var URL = {
+		STATUS: '/webterm/status',
+		DATA: '/webterm/data',
+		CMD: '/webterm/cmd',
+		ABORT: '/webterm/abort',
+		RESET: '/webterm/reset'
+	};
+	var POLL_INTERVAL = 500;
+	var POLL_FAST = 100;
+	var FETCH_OPTS = { cache: 'no-cache', headers: { 'Cache-Control': 'no-cache' } };
+	var CMD_HEADERS = { 'Content-Type': 'text/plain' };
+
+	var [terminalOutput, terminalInput, sendBtn, clearBtn, connectionStatus, abortBtn] =
+		['terminalOutput', 'terminalInput', 'sendBtn', 'clearBtn', 'connectionStatus', 'abortBtn'].map(document.getElementById, document);
+
+	var pollTimer = null;
+	var lastSeq = 0;
+
+	function postCommand(body) {
+		return fetch(URL.CMD, { method: 'POST', headers: CMD_HEADERS, body: body });
+	}
+
+	function restartPoll(delay) {
+		clearTimeout(pollTimer);
+		pollTimer = setTimeout(fetchStatus, delay);
+	}
+
+	function restartPollFast() {
+		restartPoll(POLL_FAST);
+	}
+
+	function postAndPoll(cmd) {
+		postCommand(cmd);
+		restartPollFast();
+	}
+
+	function getInput() {
+		return terminalInput.value.trim();
+	}
+
+	async function fetchStatus() {
+		var ok = false, hasNewData = false;
+		try {
+			var response = await fetch(URL.STATUS, FETCH_OPTS);
+			if (response.ok) {
+				var seq = parseInt(await response.text(), 10);
+				if (seq !== lastSeq) {
+					await fetchOutput();
+					lastSeq = seq;
+					hasNewData = true;
+				}
+				ok = true;
+			}
+		} catch (error) {}
+		connectionStatus.textContent = ok ? '✓' : '✗';
+		connectionStatus.style.color = ok ? 'green' : 'red';
+		restartPoll(hasNewData ? POLL_FAST : POLL_INTERVAL);
+	}
+
+	async function fetchOutput() {
+		try {
+			var response = await fetch(URL.DATA + '?since=' + lastSeq, FETCH_OPTS);
+			var text = await response.text();
+			if (text) {
+				terminalOutput.textContent += text;
+				terminalOutput.scrollTo({ top: terminalOutput.scrollHeight, behavior: 'smooth' });
+			}
+		} catch (error) {}
+	}
+
+	async function sendCommand() {
+		var command = terminalInput.value.trim();
+		if (!command) return;
+		[terminalInput, sendBtn].forEach(function (el) { el.disabled = true; });
+		try {
+			await postCommand(command);
+			terminalInput.value = '';
+			restartPollFast();
+		} catch (error) { } finally {
+			[terminalInput, sendBtn].forEach(function (el) { el.disabled = false; });
+			terminalInput.focus();
+			updateButtonStyles();
+		}
+	}
+
+	function clearTerminal() {
+		terminalOutput.textContent = '';
+		fetch(URL.RESET, { method: 'POST', headers: CMD_HEADERS }).catch(function() {});
+		updateButtonStyles();
+	}
+
+	var updateEnv = document.getElementById('updateEnv');
+	var deleteEnv = document.getElementById('deleteEnv');
+
+	function updateButtonStyles() {
+		var hasInput = terminalInput.value.trim().length > 0;
+		[sendBtn, updateEnv, deleteEnv].forEach(function (el) {
+			el.classList.toggle('active', hasInput);
+		});
+		clearBtn.classList.toggle('active', terminalOutput.textContent.trim().length > 0);
+	}
+
+	function abortCommand() {
+		fetch(URL.ABORT, { method: 'POST', headers: CMD_HEADERS }).catch(function() {});
+		restartPollFast();
+	}
+
+	terminalInput.addEventListener('input', updateButtonStyles);
+	terminalInput.addEventListener('keypress', function (e) { if (e.key === 'Enter') sendCommand(); });
+	sendBtn.addEventListener('click', sendCommand);
+	clearBtn.addEventListener('click', clearTerminal);
+	abortBtn.addEventListener('click', abortCommand);
+
+	document.getElementById('rebootDev').addEventListener('click', function () {
+		if (confirm('确认重启？')) { postCommand('reset'); }
+	});
+
+	var expandBtn = document.getElementById('expandBtn');
+	var isFrame = window.self !== window.top;
+	expandBtn.href = isFrame ? 'term.html' : 'index.html';
+	expandBtn.target = isFrame ? '_blank' : '';
+	expandBtn.title = isFrame ? '大窗' : '返回';
+
+	var envMenu = document.getElementById('envMenu');
+	envMenu.classList.add('show');
+
+	var envToggle = document.getElementById('envToggle');
+	envToggle.textContent = '折叠';
+
+	envToggle.addEventListener('click', function () {
+		envToggle.textContent = envMenu.classList.toggle('show') ? '折叠' : '展开';
+	});
+
+	document.getElementById('queryEnv').addEventListener('click', function () {
+		var n = getInput();
+		postAndPoll(n ? 'printenv ' + n : 'printenv');
+	});
+
+	document.getElementById('updateEnv').addEventListener('click', function () {
+		var n = getInput();
+		if (!n) { alert('输入变量名'); return; }
+		var v = prompt('修改 ' + n + ' 的值:');
+		if (v !== null) { postAndPoll('setenv ' + n + ' ' + v + '; saveenv'); }
+	});
+
+	document.getElementById('deleteEnv').addEventListener('click', function () {
+		var n = getInput();
+		if (!n) { alert('输入变量名'); return; }
+		if (confirm('确认删除 ' + n + '？')) { postAndPoll('setenv ' + n + '; saveenv'); }
+	});
+
+	document.getElementById('resetEnv').addEventListener('click', function () {
+		var n = getInput();
+		var msg = n ? '将 ' + n + ' 重置为缺省值？' : '重置全部为缺省值？';
+		var cmd = n ? 'env default -f ' + n + '; saveenv' : 'env default -a; saveenv';
+		if (confirm(msg)) { postAndPoll(cmd); }
+	});
+
+	restartPollFast();
+})();
+	</script>
+</body>
+</html>

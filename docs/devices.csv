@@ -21,6 +21,8 @@ IPQ5332,ipq5332_h3c_ne36pro,H3C NE36PRO,H3C NE36PRO,H3C NE36PRO,H3C-NE36PRO,,0x8
 IPQ5332,ipq5332_jdcloud_be6500,JDCloud BE6500 (JDBox RE-CS-06),JDCloud BE6500 (JDBox RE-CS-06),JDCloud BE6500 (JDBox RE-CS-06),JDCloud-BE6500,,0x8060000,yes,arch/arm/dts/ipq5332-jdcloud-be6500.dts,
 IPQ5332,ipq5332_xiaomi_be306,Xiaomi BE306,Xiaomi BE306,Xiaomi BE306,Xiaomi-BE306,,0x8060004,no,arch/arm/dts/ipq5332-xiaomi-be306.dts,
 IPQ5332,ipq5332_xiaomi_be6500,Xiaomi BE6500 (RN02),Xiaomi BE6500 (RN02),Xiaomi BE6500 (RN02),Xiaomi-BE6500,,0x8060001,yes,arch/arm/dts/ipq5332-xiaomi-be6500.dts,
+IPQ5332,ipq5332_xiaomi_be3600_pro_wired_5ports,Xiaomi BE3600 Pro Wired 5-Ports,Xiaomi BE3600 Pro Wired 5-Ports,Xiaomi BE3600 Pro Wired 5-Ports,Xiaomi-BE3600-Pro-5Ports,,0x8060004,unknown,arch/arm/dts/ipq5332-xiaomi-be3600-pro-wired-5ports.dts,
+IPQ5332,ipq5332_xiaomi_be3600_pro_wired_8ports,Xiaomi BE3600 Pro Wired 8-Ports,Xiaomi BE3600 Pro Wired 8-Ports,Xiaomi BE3600 Pro Wired 8-Ports,Xiaomi-BE3600-Pro-8Ports,,0x8060004,unknown,arch/arm/dts/ipq5332-xiaomi-be3600-pro-wired-8ports.dts,
 IPQ5332,ipq5332_tiny,QCA Tiny Common,QCA Tiny Common,QCA Tiny Common,QCA-Tiny,,,yes,,generic tiny build
 IPQ5332,ipq5332_tiny_nor,QCA Tiny NOR Common,QCA Tiny NOR Common,QCA Tiny NOR Common,QCA-Tiny-NOR,,,yes,,generic tiny NOR build
 IPQ5332,ipq5332_tiny_debug,QCA Tiny Debug Common,QCA Tiny Debug Common,QCA Tiny Debug Common,QCA-Tiny-Debug,,,yes,,generic tiny debug build
@@ -47,4 +49,5 @@ IPQ807x,ipq807x_redmi_ax6,Redmi AX6 / Xiaomi AX3600,Redmi AX6 / Xiaomi AX3600,Re
 IPQ807x,ipq807x_tiny,QCA Tiny Common,QCA Tiny Common,QCA Tiny Common,QCA-Tiny,,,yes,,generic tiny build
 IPQ807x,ipq807x_xglink_5gcpe,XGlink 5GCPE,XGlink 5GCPE,XGlink 5GCPE,XGlink-5GCPE,,0x08010008,yes,arch/arm/dts/ipq807x-xglink-5gcpe.dts,
 IPQ807x,ipq807x,QCA Common,QCA Common,QCA Common,QCA-Common,,,yes,,generic base build
+IPQ9574,ipq9574_xiaomi_be7000,Xiaomi BE7000,Xiaomi BE7000,Xiaomi BE7000,Xiaomi-BE7000,,0x8050001,unknown,arch/arm/dts/ipq9574-xiaomi-be7000.dts,
 IPQ9574,ipq9574,QCA Common,QCA Common,QCA Common,QCA-Common,,,unknown,,generic base build

@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>关于设置</title>
+	<script src="common.js?v=f"></script>
+	<link rel="stylesheet" href="style.css?v=f">
+</head>
+<body class="iframe-content">
+	<script>if(window.self!==window.top)document.body.classList.add('in-frame')</script>
+	<div class="card about-card">
+		<h2 class="has-tabs"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-router"/></svg><span id="about-title">关于设置</span><span class="tab-indicator" id="tab-indicator"></span></h2>
+
+		<!-- 标签页导航 -->
+		<div class="tab-nav">
+			<div class="tab-item active" data-tab="info">设备信息</div>
+			<div class="tab-item" data-tab="gpio">GPIO信息</div>
+			<div class="tab-item" data-tab="smem">SMEM信息</div>
+			<div class="tab-item" data-tab="mac">MAC管理</div>
+			<div class="tab-item" data-tab="updset">更新设置</div>
+		</div>
+
+		<div class="tab-container">
+			<!-- 第1页：设备信息 -->
+			<div class="tab-content active" id="tab-info">
+				<div class="about-section">
+					<table class="about-table" id="info-table">
+						<tbody id="info-tbody"></tbody>
+					</table>
+				</div>
+			</div>
+
+			<!-- 第2页：GPIO信息 -->
+			<div class="tab-content" id="tab-gpio">
+				<div class="about-section">
+					<table class="about-table" id="gpio-table">
+						<thead><tr><th>名称</th><th>映射</th><th>GPIO</th><th>方向</th><th>当前值</th><th>电平</th><th>父系</th><th>来源</th><th>覆盖</th><th><span class="about-gpio-ops">操作 <button class="about-sm-btn" id="gpio-detect-btn">探测按键</button></span></th></tr></thead>
+						<tbody id="gpio-tbody"></tbody>
+					</table>
+				</div>
+			</div>
+
+			<!-- 第3页：SMEM信息 -->
+			<div class="tab-content" id="tab-smem">
+				<div class="about-section">
+					<table class="about-table" id="smem-table">
+						<thead id="smem-thead"><tr><th rowspan="2">名称</th><th colspan="2">起始</th><th colspan="2">结束</th><th colspan="3">大小</th><th rowspan="2">指向</th></tr><tr><th>块</th><th>地址</th><th>块</th><th>地址</th><th>块数</th><th>Hex</th><th>容量</th></tr></thead>
+						<tbody id="smem-tbody"></tbody>
+					</table>
+				</div>
+			</div>
+
+			<!-- 第4页：MAC管理 -->
+			<div class="tab-content" id="tab-mac">
+				<div class="about-section">
+					<table class="about-table" id="mac-table">
+						<thead><tr><th>接口</th><th>MAC地址</th><th>ART偏移</th><th>校验偏移</th><th>XOR16值</th><th>校验状态</th><th>操作</th></tr></thead>
+						<tbody id="mac-tbody"></tbody>
+					</table>
+				</div>
+			</div>
+
+			<!-- 第5页：更新设置 -->
+			<div class="tab-content" id="tab-updset">
+				<div class="about-section">
+					<table class="about-table" id="updset-table">
+						<tbody id="updset-tbody"></tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script>
+(function() {
+	var ledTimers = {};
+
+	function ledControl(name, action) {
+		xhrGet('/led?name=' + encodeURIComponent(name) + '&action=' + action, function() {});
+	}
+
+	function startBlink(name) {
+		if (ledTimers[name]) return;
+		ledTimers[name] = setInterval(function() {
+			ledControl(name, 'toggle');
+		}, 500);
+	}
+
+	function stopBlink(name) {
+		if (ledTimers[name]) {
+			clearInterval(ledTimers[name]);
+			delete ledTimers[name];
+		}
+	}
+
+	function stopAllBlink() {
+		Object.keys(ledTimers).forEach(stopBlink);
+	}
+
+	function mkBtn(text, attrs, style) {
+		var b = document.createElement('button');
+		b.textContent = text;
+		b.className = 'about-sm-btn';
+		for (var k in attrs) b.setAttribute(k, attrs[k]);
+		if (style) for (var k in style) b.style[k] = style[k];
+		return b;
+	}
+
+	function addBtn(parent, text, attrs, style, extra) {
+		var b = mkBtn(text, attrs, style);
+		if (extra) b.className += ' ' + extra;
+		parent.appendChild(b);
+		return b;
+	}
+
+	function bindLedButtons(gpioTbody) {
+		gpioTbody.querySelectorAll('.about-sm-btn[data-act]').forEach(function(btn) {
+			btn.addEventListener('click', function() {
+				var name = this.getAttribute('data-led'), act = this.getAttribute('data-act');
+				if (act === 'blink') {
+					startBlink(name);
+					this.style.display = 'none';
+					var stopBtn = this.parentElement.querySelector('[data-act="stop"][data-led="' + name + '"]');
+					stopBtn.style.display = '';
+					stopBtn.classList.add('about-btn-pressed');
+				} else {
+					stopBlink(name);
+					var stopBtn = this.parentElement.querySelector('[data-act="stop"][data-led="' + name + '"]'),
+					    blinkBtn = this.parentElement.querySelector('[data-act="blink"][data-led="' + name + '"]');
+					if (stopBtn) { stopBtn.style.display = 'none'; stopBtn.classList.remove('about-btn-pressed'); }
+					if (blinkBtn) blinkBtn.style.display = '';
+					ledControl(name, act);
+				}
+			});
+		});
+
+		gpioTbody.querySelectorAll('.about-blink-stop').forEach(function(btn) {
+			btn.addEventListener('click', function() {
+				var name = this.getAttribute('data-led');
+				stopBlink(name);
+				this.style.display = 'none';
+				this.classList.remove('about-btn-pressed');
+				var blinkBtn = this.parentElement.querySelector('[data-act="blink"][data-led="' + name + '"]');
+				if (blinkBtn) blinkBtn.style.display = '';
+				ledControl(name, 'off');
+			});
+		});
+	}
+
+	var infoFields = [
+		['机型', 'model'],
+		['配置名称', 'config_name'],
+		['机型ID', 'machid'],
+		['内存大小', 'ram_size'],
+		['闪存类型', 'flash_type'],
+		['闪存信息', 'flash_chips'],
+		['PHY/交换机', 'phy_switch_info'],
+		['有线MAC', 'mac_addr'],
+		['无线MAC', 'wifi_mac'],
+		['U-Boot版本', 'version']
+	];
+
+	function loadAbout() {
+		var infoTbody = document.getElementById('info-tbody');
+		infoTbody.innerHTML = '';
+		infoFields.forEach(function(f) {
+			var tr = document.createElement('tr');
+			var td1 = document.createElement('td');
+			td1.textContent = f[0];
+			var td2 = document.createElement('td');
+			td2.textContent = '-';
+			td2.setAttribute('data-key', f[1]);
+			tr.appendChild(td1);
+			tr.appendChild(td2);
+			infoTbody.appendChild(tr);
+		});
+
+		xhrGet('/about', function(data) {
+			infoFields.forEach(function(f) {
+				var key = f[1];
+				var td = infoTbody.querySelector('[data-key="' + key + '"]');
+				if (!td) return;
+				var val = data[key] || '-';
+				if (key === 'ram_size')
+					val = data.ram_size ? formatSize(data.ram_size) : '-';
+				if (key === 'flash_chips' && val !== '-')
+					val = val.replace(/(\d+)MiB/g, function(m, n) { var g = parseInt(n) / 1024; return g >= 1 ? g.toFixed(2) + 'GiB' : m; });
+				td.textContent = val;
+				if (key === 'phy_switch_info' && val !== '-')
+					td.innerHTML = val.replace(/([^,]+) \[UP\]/g, '<span style="color:#27ae60">$1</span>').replace(/ \[DOWN\]/g, '');
+				if (key === 'config_name' && data.config_name_source) {
+					td.className = 'about-gpio-ops';
+					if (data.config_name_source === 'env') {
+						addBtn(td, '恢复').onclick = function() { xhrPost('/env_set', 'config_name=', function() { loadAbout(); }); };
+					} else if (data.config_name_source === 'fdt') {
+						addBtn(td, '修改').onclick = function() {
+							var v = prompt('输入 config_name 值 (如 config@xxx):');
+							if (v !== null && v !== '')
+								xhrPost('/env_set', 'config_name=' + encodeURIComponent(v), function() { loadAbout(); });
+						};
+					}
+				}
+			});
+
+			var gpioTbody = document.getElementById('gpio-tbody');
+			gpioTbody.innerHTML = '';
+			stopDetect();
+			var stickyIdx = 0;
+			(data.gpios || []).forEach(function(g) {
+				var tr = document.createElement('tr'), isLed = g.parent === 'led_gpio',
+				    opsTd = document.createElement('td');
+				opsTd.className = 'about-gpio-ops';
+				if (isLed) {
+					addBtn(opsTd, '点亮', {'data-led':g.name, 'data-act':'on'});
+					addBtn(opsTd, '熄灭', {'data-led':g.name, 'data-act':'off'});
+					addBtn(opsTd, '闪烁', {'data-led':g.name, 'data-act':'blink'});
+					addBtn(opsTd, '停止', {'data-led':g.name, 'data-act':'stop'}, {display:'none'}, 'about-blink-stop');
+				}
+				if (g.override) {
+					addBtn(opsTd, '恢复', {'data-override': g.override});
+				} else if (!isLed && g.parent === 'key_gpio') {
+					addBtn(opsTd, '修改', {'data-modify': 'reset_key'});
+				}
+				if (!opsTd.hasChildNodes()) opsTd.textContent = '-';
+				tr.innerHTML = [g.name||'-', g.alias||'', g.gpio, g.dir||'-',
+					g.value, g.value?'高':'低', g.parent||'-',
+					g.source==='env'?'变量':'fdt', g.override||''
+				].map(function(v){return '<td>'+v+'</td>';}).join('');
+				tr.appendChild(opsTd);
+				if (opsTd.hasChildNodes() && opsTd.textContent !== '-') {
+					tr.classList.add('gpio-btn-row');
+					tr.style.top = (2 + stickyIdx * 2) + 'rem';
+					stickyIdx++;
+				}
+				gpioTbody.appendChild(tr);
+			});
+			bindLedButtons(gpioTbody);
+			gpioTbody.querySelectorAll('[data-override]').forEach(function(btn) {
+				btn.onclick = function() {
+					var key = this.getAttribute('data-override');
+					xhrPost('/env_set', encodeURIComponent(key) + '=', function() { loadAbout(); });
+				};
+			});
+			gpioTbody.querySelectorAll('[data-modify]').forEach(function(btn) {
+				btn.onclick = function() {
+					var key = this.getAttribute('data-modify'),
+					    val = prompt('输入 ' + key + ' 的 GPIO 编号:');
+					if (val !== null && val !== '')
+						xhrPost('/env_set', encodeURIComponent(key) + '=' + encodeURIComponent(val), function() { loadAbout(); });
+				};
+			});
+			var detectBtn = document.getElementById('gpio-detect-btn');
+			detectBtn.onclick = function() {
+				if (detectTimer) {
+					stopDetect();
+				} else {
+					pollDetect();
+					detectTimer = setInterval(pollDetect, 200);
+					this.textContent = '停止探测';
+					this.classList.add('about-btn-pressed');
+				}
+			};
+
+			xhrGet('/mac_info', function(md) {
+				var wifiTd = infoTbody.querySelector('[data-key="wifi_mac"]');
+				if (wifiTd) wifiTd.textContent = md.wifi_mac || '-';
+			});
+		});
+	}
+
+	function loadSmemTable() {
+		xhrGet('/partitions', function(data) {
+			var smemTbody = document.getElementById('smem-tbody');
+			smemTbody.innerHTML = '';
+			(data.parts || []).forEach(function(p) {
+				var tr = document.createElement('tr');
+				var blkStart = (p.blk_start !== undefined) ? p.blk_start : '-';
+				var blkEnd = (p.blk_start !== undefined && p.blk_size !== undefined) ? (p.blk_start + p.blk_size - 1) : '-';
+				var blkSize = (p.blk_size !== undefined) ? p.blk_size : '-';
+				tr.innerHTML = '<td>' + (p.name||'-') + '</td>'
+					+ '<td>' + blkStart + '</td><td>' + formatHex(p.start) + '</td>'
+					+ '<td>' + blkEnd + '</td><td>' + formatHex(p.start+p.size) + '</td>'
+					+ '<td>' + blkSize + '</td><td>' + p.size.toString(16).toUpperCase() + '</td><td>' + formatSize(p.size) + '</td>'
+					+ '<td>' + (p.flash||'-') + '</td>';
+				smemTbody.appendChild(tr);
+			});
+		});
+	}
+
+	function loadMacTable(data) {
+		var macTbody = document.getElementById('mac-tbody');
+		macTbody.innerHTML = '';
+		var entries = [];
+		var ethMacs = (data.mac_addr || '').split(', ');
+		var ethOffs = (data.mac_off || '').split(', ');
+		var wifiMacs = (data.wifi_mac || '').split(', ');
+		var wifiOffs = (data.wifi_off || '').split(', ');
+		var wifiCss = (data.wifi_cs || '').split(', ');
+		var wifiCsOffs = (data.wifi_cs_off || '').split(', ');
+		var wifiCsOks = (data.wifi_cs_ok || '').split(', ');
+		for (var i = 0; i < ethMacs.length; i++)
+			if (ethMacs[i]) entries.push({iface: 'eth' + i, mac: ethMacs[i], off: ethOffs[i] || 'N/A', cso: 'N/A', cs: 'N/A', ok: 'N/A'});
+		for (var i = 0, j = 0; i < wifiMacs.length; i++)
+			if (wifiMacs[i] && wifiMacs[i] !== '-') entries.push({iface: 'wifi' + i, mac: wifiMacs[i], off: wifiOffs[j] || '-', cso: wifiCsOffs[j] || '-', cs: wifiCss[j] || '-', ok: wifiCsOks[j++] === '1' ? '✓' : '✗'});
+		entries.forEach(function(e) {
+			var tr = macTbody.insertRow();
+			['iface', 'mac', 'off', 'cso', 'cs', 'ok'].forEach(function(k) {
+				tr.insertCell().textContent = e[k];
+			});
+			var tdO = tr.insertCell();
+			tdO.className = 'about-gpio-ops';
+			var btn = addBtn(tdO, '修改');
+			btn.setAttribute('data-iface', e.iface);
+			btn.onclick = function() {
+				var v = prompt('输入 ' + e.iface + ' 的新MAC地址 (格式: XX:XX:XX:XX:XX:XX):');
+				if (!v) return;
+				if (!/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(v)) return alert('MAC地址格式无效');
+				xhrPost('/mac_set', 'iface=' + encodeURIComponent(e.iface) + '&mac=' + encodeURIComponent(v.toUpperCase()), function(r) {
+					if (r !== 'ok') return alert('修改失败');
+					xhrGet('/mac_info', function(d) {
+						loadMacTable(d);
+						var macTd = document.querySelector('[data-key="mac_addr"]');
+						if (macTd) macTd.textContent = d.mac_addr || '-';
+						var wifiTd = document.querySelector('[data-key="wifi_mac"]');
+						if (wifiTd) wifiTd.textContent = d.wifi_mac || '-';
+					});
+				});
+			};
+		});
+	}
+
+	var detectTimer = null;
+	var detectExtraRows = {};
+	var detectPrev = {};
+
+	function stopDetect() {
+		if (detectTimer) {
+			clearInterval(detectTimer);
+			detectTimer = null;
+		}
+		Object.keys(detectExtraRows).forEach(function(gpio) {
+			if (detectExtraRows[gpio].parentNode)
+				detectExtraRows[gpio].parentNode.removeChild(detectExtraRows[gpio]);
+		});
+		detectExtraRows = {};
+		detectPrev = {};
+		var gpioTbody = document.getElementById('gpio-tbody');
+		if (gpioTbody) gpioTbody.querySelectorAll('.about-row-changed').forEach(function(row) {
+			row.classList.remove('about-row-changed');
+		});
+		var btn = document.getElementById('gpio-detect-btn');
+		if (btn) {
+			btn.textContent = '探测按键';
+			btn.classList.remove('about-btn-pressed');
+		}
+	}
+
+	function pollDetect() {
+		xhrGet('/btn_detect', function(data) {
+			if (!data || !data.length) return;
+			var gpioTbody = document.getElementById('gpio-tbody');
+			data.forEach(function(b) {
+				var changed = detectPrev[b.gpio] !== undefined && detectPrev[b.gpio] !== b.value;
+				detectPrev[b.gpio] = b.value;
+				var found = false;
+				var rows = gpioTbody.querySelectorAll('tr');
+				for (var r = 0; r < rows.length; r++) {
+					var cells = rows[r].querySelectorAll('td');
+					if (cells.length > 1 && cells[2].textContent == b.gpio) {
+						cells[4].textContent = b.value;
+						cells[5].textContent = b.value ? '高' : '低';
+						cells[5].className = b.value ? '' : 'about-btn-pressed';
+						if (changed) {
+							rows[r].classList.add('about-row-changed');
+							rows[r].scrollIntoView({behavior:'smooth',block:'nearest'});
+						}
+						found = true;
+						break;
+					}
+				}
+				if (!found && !detectExtraRows[b.gpio]) {
+					var tr = document.createElement('tr');
+					tr.innerHTML =
+						'<td>-</td>' +
+						'<td></td>' +
+						'<td>' + b.gpio + '</td>' +
+						'<td>in</td>' +
+						'<td>' + b.value + '</td>' +
+						'<td' + (b.value ? '' : ' class="about-btn-pressed"') + '>' + (b.value ? '高' : '低') + '</td>' +
+						'<td>-</td><td>-</td><td></td><td>-</td>';
+					gpioTbody.appendChild(tr);
+					detectExtraRows[b.gpio] = tr;
+				}
+				if (!found && detectExtraRows[b.gpio]) {
+					var cells = detectExtraRows[b.gpio].querySelectorAll('td');
+					cells[4].textContent = b.value;
+					cells[5].textContent = b.value ? '高' : '低';
+					cells[5].className = b.value ? '' : 'about-btn-pressed';
+					if (changed) {
+						detectExtraRows[b.gpio].classList.add('about-row-changed');
+						detectExtraRows[b.gpio].scrollIntoView({behavior:'smooth',block:'nearest'});
+					}
+				}
+			});
+		});
+	}
+
+	function isBackupPartition(name) {
+		var u = (name || '').toUpperCase();
+		return u.indexOf('_1') === u.length - 2 || u.indexOf('BACKUP') !== -1 || u === 'BOOTCONFIG1';
+	}
+
+	function loadUpdsetTable() {
+		var tbody = document.getElementById('updset-tbody');
+		tbody.innerHTML = '';
+
+		// 第一行：更新备分区
+		var chk = document.createElement('input');
+		chk.type = 'checkbox';
+		chk.id = 'flash-backup-chk';
+		var lbl = document.createElement('label');
+		lbl.htmlFor = 'flash-backup-chk';
+		lbl.style.marginLeft = '0.5rem';
+		lbl.textContent = '检测中...';
+		var tdName = document.createElement('td');
+		tdName.textContent = '更新备分区';
+		var tdVal = document.createElement('td');
+		tdVal.className = 'about-gpio-ops';
+		tdVal.appendChild(chk);
+		tdVal.appendChild(lbl);
+		var tr = document.createElement('tr');
+		tr.appendChild(tdName);
+		tr.appendChild(tdVal);
+		tbody.appendChild(tr);
+		var applyState = function(en, tx) { chk.disabled = !en; lbl.textContent = tx; };
+		var setLs = function(v) { try { localStorage.setItem('flash_backup', v); } catch (e) {} };
+		var stateText = function() { return chk.checked ? '已启用·主备同刷' : '已关闭·仅主分区'; };
+		var storageOk = true;
+		try { chk.checked = localStorage.getItem('flash_backup') === '1'; }
+		catch (e) { storageOk = false; chk.checked = false; }
+		var done = false;
+		var timer = setTimeout(function() {
+			if (done) return;
+			done = true;
+			applyState(false, '检测失败');
+			chk.checked = false;
+			setLs('0');
+		}, 10000);
+		xhrGet('/partitions', function(data) {
+			if (done) return;
+			done = true;
+			clearTimeout(timer);
+			var hasBackup = (data && data.parts || []).some(function(p) { return isBackupPartition(p.name); });
+			var enabled = storageOk && hasBackup;
+			applyState(enabled, !storageOk ? '不可用' : !hasBackup ? '无备分区' : stateText());
+			if (!enabled) { chk.checked = false; if (storageOk && !hasBackup) setLs('0'); }
+		});
+		chk.onchange = function() {
+			try { localStorage.setItem('flash_backup', chk.checked ? '1' : '0'); applyState(true, stateText()); }
+			catch (e) { chk.checked = false; applyState(false, '不可用'); }
+		};
+
+		// 第二行：更新完成后自动重启
+		var chk2 = document.createElement('input');
+		chk2.type = 'checkbox';
+		chk2.id = 'auto-reboot-chk';
+		var lbl2 = document.createElement('label');
+		lbl2.htmlFor = 'auto-reboot-chk';
+		lbl2.style.marginLeft = '0.5rem';
+		var getRebootStateText = function() { return chk2.checked ? '已启用·自动重启' : '已关闭·手动重启'; };
+		try { chk2.checked = localStorage.getItem('auto_reboot') !== '0'; } catch (e) { chk2.checked = true; }
+		lbl2.textContent = getRebootStateText();
+		var tdName2 = document.createElement('td');
+		tdName2.textContent = '更新完成后自动重启';
+		var tdVal2 = document.createElement('td');
+		tdVal2.className = 'about-gpio-ops';
+		tdVal2.appendChild(chk2);
+		tdVal2.appendChild(lbl2);
+		var tr2 = document.createElement('tr');
+		tr2.appendChild(tdName2);
+		tr2.appendChild(tdVal2);
+		tbody.appendChild(tr2);
+		chk2.onchange = function() {
+			try { localStorage.setItem('auto_reboot', chk2.checked ? '1' : '0'); } catch (e) {}
+			lbl2.textContent = getRebootStateText();
+		};
+	}
+
+	// ===== 标签页切换逻辑 =====
+	var indicator = document.getElementById('tab-indicator');
+	var titleEl = document.getElementById('about-title');
+	var tabTitles = { info: '设备信息', gpio: 'GPIO信息', smem: 'SMEM信息', mac: 'MAC管理', updset: '更新设置' };
+
+	var macLoaded = false, smemLoaded = false, updsetLoaded = false;
+	function switchTab(tabName) {
+		var tabs = document.querySelectorAll('.tab-item');
+		var contents = document.querySelectorAll('.tab-content');
+
+		tabs.forEach(function(tab) {
+			tab.classList.toggle('active', tab.getAttribute('data-tab') === tabName);
+		});
+
+		contents.forEach(function(content) {
+			content.classList.toggle('active', content.id === 'tab-' + tabName);
+		});
+
+		titleEl.textContent = tabTitles[tabName] || '关于设置';
+		document.title = tabTitles[tabName] || '关于设置';
+
+		if (tabName === 'mac' && !macLoaded) {
+			macLoaded = true;
+			xhrGet('/mac_info', loadMacTable);
+		}
+		if (tabName === 'smem' && !smemLoaded) {
+			smemLoaded = true;
+			loadSmemTable();
+		}
+		if (tabName === 'updset' && !updsetLoaded) {
+			updsetLoaded = true;
+			loadUpdsetTable();
+		}
+
+		updateTabIndicator(indicator);
+	}
+
+	// 绑定标签页点击事件
+	document.querySelectorAll('.tab-item').forEach(function(tab) {
+		tab.addEventListener('click', function() {
+			var tabName = this.getAttribute('data-tab');
+			switchTab(tabName);
+		});
+	});
+
+	window.addEventListener('pagehide', function() {
+		stopAllBlink();
+		if (detectTimer) clearInterval(detectTimer);
+	});
+
+	loadAbout();
+	titleEl.textContent = tabTitles.info;
+	updateTabIndicator(indicator);
+	window.addEventListener('resize', function() { updateTabIndicator(indicator); });
+})();
+	</script>
+</body>
+</html>

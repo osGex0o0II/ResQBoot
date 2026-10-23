@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>U-BOOT控制台</title>
+	<script src="common.js?v=f"></script>
+	<link rel="stylesheet" href="style.css?v=f">
+</head>
+<body>
+	<div class="main-container">
+		<aside class="sidebar">
+			<ul class="sidebar-nav">
+				<li class="sidebar-nav-item active"><a href="update.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-upload"/></svg>更新启动</a></li>
+				<li class="sidebar-nav-item"><a href="backup.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-download"/></svg>备份分区</a></li>
+				<li class="sidebar-nav-item"><a href="img.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-cpu"/></svg>编程模式</a></li>
+				<li class="sidebar-nav-item"><a href="term.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-terminal"/></svg>终端变量</a></li>
+				<li class="sidebar-nav-item"><a href="about.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-router"/></svg>关于设置</a></li>
+				<li class="sidebar-nav-item"><a href="javascript:void(0)" id="rebootBtn"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-refresh"/></svg>重启设备</a></li>
+			</ul>
+			<div class="theme-switch">主题 | <span id="themeSwitch">亮☀</span></div>
+		</aside>
+		<div class="content-frame-wrapper">
+			<iframe name="content-frame" id="content-frame" src="update.html" title="内容区域" class="content-frame"></iframe>
+		</div>
+	</div>
+	<div class="additional-links">
+		<p class="link-tip"><span id="footer-text"></span> | <a href="https://github.com/osGex0o0II/ResQBoot" target="_blank">ResQBoot</a> | <span id="uboot-version"></span></p>
+	</div>
+	<script>
+		(function () {
+			var frame = document.getElementById('content-frame');
+			var items = document.querySelectorAll('.sidebar-nav-item');
+			var links = document.querySelectorAll('.sidebar-nav-item a');
+			links.forEach(function (a) {
+				a.addEventListener('click', function () {
+					items.forEach(function (li) { li.classList.remove('active'); });
+				a.parentElement.classList.add('active');
+				});
+			});
+			frame.addEventListener('load', function () {
+				try {
+					var title = frame.contentDocument.title;
+					if (title) document.title = title;
+				} catch (e) {}
+			});
+
+			var saved = localStorage.getItem('theme') || '';
+			if (saved === 'light' || saved === 'dark') document.documentElement.setAttribute('data-theme', saved);
+			document.documentElement.classList.add('no-transition');
+			requestAnimationFrame(function() {
+				requestAnimationFrame(function() {
+					document.documentElement.classList.remove('no-transition');
+				});
+			});
+
+			function apply(el, v) {
+				(v === 'light' || v === 'dark') ? el.setAttribute('data-theme', v) : el.removeAttribute('data-theme');
+			}
+
+			function effectiveTheme() {
+				var explicit = document.documentElement.getAttribute('data-theme');
+				if (explicit) return explicit;
+				return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+			}
+
+			function syncTheme() {
+				var theme = document.documentElement.getAttribute('data-theme') || '';
+				try { apply(frame.contentDocument.documentElement, theme); } catch (e) {}
+				try { frame.contentWindow.postMessage({type: 'theme', theme: theme}, '*'); } catch (e) {}
+			}
+
+			var themeSw = document.getElementById('themeSwitch');
+			themeSw.addEventListener('click', function () {
+				var theme = effectiveTheme() === 'light' ? 'dark' : 'light';
+				document.documentElement.classList.add('no-transition');
+				try { frame.contentDocument.documentElement.classList.add('no-transition'); } catch (e) {}
+				apply(document.documentElement, theme);
+				localStorage.setItem('theme', theme);
+				themeSw.textContent = theme === 'light' ? '暗☾' : '亮☀';
+				syncTheme();
+				requestAnimationFrame(function () {
+					requestAnimationFrame(function () {
+						document.documentElement.classList.remove('no-transition');
+						try { frame.contentDocument.documentElement.classList.remove('no-transition'); } catch (e) {}
+					});
+				});
+			});
+
+			frame.addEventListener('load', syncTheme);
+			syncTheme();
+
+			themeSw.textContent = effectiveTheme() === 'light' ? '暗☾' : '亮☀';
+
+			document.getElementById('rebootBtn').addEventListener('click', function () {
+				if (confirm('确认重启？')) {
+					fetch('/webterm/cmd', {method:'POST',headers:{'Content-Type':'text/plain'},body:'reset'});
+					try{frame.contentWindow.showStep(3,'设备重启中...',3);frame.contentWindow.pingDevice(3)}catch(e){frame.src='update.html#reboot'}
+				}
+			});
+
+			xhrGet('/about', function(data) {
+				var el = document.getElementById('uboot-version');
+				if (el && data && data.version)
+					el.textContent = 'Version: ' + data.version;
+			});
+		})();
+	</script>
+</body>
+</html>

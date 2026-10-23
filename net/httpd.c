@@ -10,11 +10,22 @@
 #include <linux/ctype.h>
 #include <asm/byteorder.h>
 #include "httpd.h"
-#include "../httpd/uipopt.h"
-#include "../httpd/uip.h"
-#include "../httpd/uip_arp.h"
+#include "../failsafe/failsafe_httpd.h"
+#include "../failsafe/failsafe_httpd_types.h"
+#include "lwip/ip4_addr.h"
+#ifdef CONFIG_CMD_NAND
+#include <nand.h>
+#endif
 #include <ipq_api.h>
+#include <sysupgrade_parser.h>
 #include <asm/arch-qca-common/smem.h>
+#ifdef CONFIG_SPI_FLASH
+#include <spi.h>
+#include <spi_flash.h>
+#endif
+#ifdef CONFIG_IPQ40XX
+#include <../board/qca/arm/common/fdt_info.h>
+#endif
 #ifdef CONFIG_DHCPD
 #include "dhcpd.h"
 #endif
@@ -23,6 +34,7 @@ static int do_firmware_upgrade(const ulong size);
 static int do_uboot_upgrade(const ulong size);
 static int do_art_upgrade(const ulong size);
 static int do_gpt_upgrade(const ulong size);
+static int do_img_upgrade(const ulong size);
 static int do_cdt_upgrade(const ulong size);
 static int do_mibib_upgrade(const ulong size);
 static int do_ptable_upgrade(const ulong size);
@@ -30,7 +42,6 @@ static int do_initramfs_boot(const ulong size);
 static int execute_command(const char *cmd);
 static void print_upgrade_warning(const char *upgrade_type);
 
-static int arptimer = 0;
 struct in_addr net_httpd_ip;
 
 #define HTTPD_RECOVERY_IP	"192.168.1.1"
@@ -98,77 +109,34 @@ static void httpd_set_recovery_network(const char *ipaddr, const char *serverip,
 }
 
 void HttpdStart(void) {
+	struct ip4_addr ipaddr, netmask, gw;
+	ulong tmp_ip_addr;
+
 	net_init();
+
+	IP4_ADDR(&gw, 0, 0, 0, 0);
+
 #ifdef CONFIG_DHCPD
 	dhcpd_ip_settings();
 	dhcpd_request_nonblocking();
 
-	struct uip_eth_addr eaddr;
-	unsigned short int ip[2];
-	ulong tmp_ip_addr = ntohl(dhcpd_svr_cfg.server_ip.s_addr);
-	printf("Starting HTTP server at IP: %ld.%ld.%ld.%ld\n",
-		   (tmp_ip_addr & 0xff000000) >> 24,
-		   (tmp_ip_addr & 0x00ff0000) >> 16,
-		   (tmp_ip_addr & 0x0000ff00) >> 8,
-		   (tmp_ip_addr & 0x000000ff));
-	eaddr.addr[0] = net_ethaddr[0];
-	eaddr.addr[1] = net_ethaddr[1];
-	eaddr.addr[2] = net_ethaddr[2];
-	eaddr.addr[3] = net_ethaddr[3];
-	eaddr.addr[4] = net_ethaddr[4];
-	eaddr.addr[5] = net_ethaddr[5];
-	uip_setethaddr(eaddr);
-	uip_init();
-	httpd_init();
-	ip[0] = htons((tmp_ip_addr & 0xFFFF0000) >> 16);
-	ip[1] = htons(tmp_ip_addr & 0x0000FFFF);
-	uip_sethostaddr(ip);
-	ip[0] = htons((ntohl(dhcpd_svr_cfg.netmask.s_addr) & 0xFFFF0000) >> 16);
-	ip[1] = htons(ntohl(dhcpd_svr_cfg.netmask.s_addr) & 0x0000FFFF);
+	ip4_addr_set_u32(&ipaddr, dhcpd_svr_cfg.server_ip.s_addr);
+	ip4_addr_set_u32(&netmask, dhcpd_svr_cfg.netmask.s_addr);
 	net_netmask.s_addr = dhcpd_svr_cfg.netmask.s_addr;
-	uip_setnetmask(ip);
 #else
-	struct uip_eth_addr eaddr;
-	unsigned short int ip[2];
-	ulong tmp_ip_addr = ntohl(net_ip.s_addr);
-
-	printf("Starting HTTP server at IP: %ld.%ld.%ld.%ld\n",
-		   (tmp_ip_addr & 0xff000000) >> 24,
-		   (tmp_ip_addr & 0x00ff0000) >> 16,
-		   (tmp_ip_addr & 0x0000ff00) >> 8,
-		   (tmp_ip_addr & 0x000000ff));
-
-	eaddr.addr[0] = net_ethaddr[0];
-	eaddr.addr[1] = net_ethaddr[1];
-	eaddr.addr[2] = net_ethaddr[2];
-	eaddr.addr[3] = net_ethaddr[3];
-	eaddr.addr[4] = net_ethaddr[4];
-	eaddr.addr[5] = net_ethaddr[5];
-	uip_setethaddr(eaddr);
-
-	uip_init();
-	httpd_init();
-
-	ip[0] = htons((tmp_ip_addr & 0xFFFF0000) >> 16);
-	ip[1] = htons(tmp_ip_addr & 0x0000FFFF);
-
-	uip_sethostaddr(ip);
-
-	u16_t hostaddr0 = ntohs(uip_hostaddr[0]);
-	u16_t hostaddr1 = ntohs(uip_hostaddr[1]);
-	u8_t byte1 = (hostaddr0 >> 8) & 0xff;
-	u8_t byte2 = hostaddr0 & 0xff;
-	u8_t byte3 = (hostaddr1 >> 8) & 0xff;
-	u8_t byte4 = hostaddr1 & 0xff;
-
-	printf("Host IP set to: %d.%d.%d.%d\n", byte1, byte2, byte3, byte4);
-
-	ip[0] = htons((0xFFFFFF00 & 0xFFFF0000) >> 16);
-	ip[1] = htons(0xFFFFFF00 & 0x0000FFFF);
-
-	net_netmask.s_addr = 0xFFFFFF00;
-	uip_setnetmask(ip);
+	ip4_addr_set_u32(&ipaddr, net_ip.s_addr);
+	IP4_ADDR(&netmask, 255, 255, 255, 0);
+	net_netmask.s_addr = htonl(0xFFFFFF00);
 #endif
+
+	tmp_ip_addr = ntohl(ip4_addr_get_u32(&ipaddr));
+	printf("HTTP server:%ld.%ld.%ld.%ld\n",
+		(tmp_ip_addr >> 24) & 0xff,
+		(tmp_ip_addr >> 16) & 0xff,
+		(tmp_ip_addr >> 8) & 0xff,
+		tmp_ip_addr & 0xff);
+
+	failsafe_lwip_init(&ipaddr, &netmask, &gw);
 	webfailsafe_is_running = 1;
 }
 
@@ -176,11 +144,16 @@ static void reset_webfailsafe_state(void) {
 	webfailsafe_is_running = 0;
 	webfailsafe_ready_for_upgrade = 0;
 	webfailsafe_upgrade_type = WEBFAILSAFE_UPGRADE_TYPE_FIRMWARE;
+	webfailsafe_backup_avail_enabled = 0;
+	webfailsafe_auto_reboot_enabled = 1;
 }
 
 void HttpdStop(void) {
+	failsafe_httpd_stop();
+#ifdef CONFIG_DHCPD
+	dhcpd_deinit_server();
+#endif
 	reset_webfailsafe_state();
-	do_http_progress(WEBFAILSAFE_PROGRESS_UPGRADE_FAILED);
 }
 
 void HttpdDone(void) {
@@ -199,13 +172,14 @@ static void print_upgrade_warning(const char *upgrade_type) {
 
 #ifdef CONFIG_MD5
 #include <u-boot/md5.h>
-void printChecksumMd5(int address, unsigned int size) {
-	void *buf = (void *)(address);
+void printChecksumMd5(ulong address, ulong size) {
 	u8 output[16];
-	md5_wd(buf, size, output, CHUNKSZ_MD5);
-	printf("The md5sum from 0x%08x to 0x%08x is: ", address, address + size);
+	char md5str[33];
 	int i;
-	for (i = 0; i < 16; i++) printf("%02x", output[i] & 0xFF);
+	md5_wd((void *)address, size, output, CHUNKSZ_MD5);
+	for (i = 0; i < 16; i++)
+		sprintf(md5str + i * 2, "%02x", output[i]);
+	printf("md5sum [0x%08lx-0x%08lx]: %s", address, address + size, md5str);
 }
 #else
 void printChecksumMd5(int address, unsigned int size) {}
@@ -220,6 +194,7 @@ static const char *fw_type_to_string(int fw_type) {
 		case FW_TYPE_CDT: return "CDT";
 		case FW_TYPE_ELF: return "ELF";
 		case FW_TYPE_MIBIB: return "MIBIB";
+		case FW_TYPE_SYSUPGRADE: return "SYSUPGRADE";
 		default: return "UNKNOWN";
 	}
 }
@@ -231,7 +206,7 @@ int do_http_upgrade(const ulong size, const int upgrade_type) {
 		case WEBFAILSAFE_UPGRADE_TYPE_FIRMWARE: return do_firmware_upgrade(size);
 		case WEBFAILSAFE_UPGRADE_TYPE_UBOOT: return do_uboot_upgrade(size);
 		case WEBFAILSAFE_UPGRADE_TYPE_ART: return do_art_upgrade(size);
-		case WEBFAILSAFE_UPGRADE_TYPE_IMG: return do_gpt_upgrade(size);
+		case WEBFAILSAFE_UPGRADE_TYPE_IMG: return do_img_upgrade(size);
 		case WEBFAILSAFE_UPGRADE_TYPE_CDT: return do_cdt_upgrade(size);
 		case WEBFAILSAFE_UPGRADE_TYPE_MIBIB: return do_mibib_upgrade(size);
 		case WEBFAILSAFE_UPGRADE_TYPE_PTABLE: return do_ptable_upgrade(size);
@@ -249,7 +224,7 @@ int do_http_upgrade(const ulong size, const int upgrade_type) {
 static int update_bootconfig(void) {
 	char buf[256];
 	/* Read BOOTCONFIG partition using dynamic offset and size */
-	sprintf(buf, "mmc read 0x%lx 0x%lx 0x%lx", UPLOAD_ADDR, get_bootconfig_offset_blocks(), get_bootconfig_size_blocks());
+	sprintf(buf, "mmc read 0x%lx 0x%lx 0x%lx", UPLOAD_ADDR, (unsigned long)get_bootconfig_offset_blocks(), (unsigned long)get_bootconfig_size_blocks());
 	if (execute_command(buf) != 0) {
 		printf("\n* Failed to read BOOTCONFIG *\n");
 		return -1;
@@ -259,7 +234,7 @@ static int update_bootconfig(void) {
 		UPLOAD_ADDR + 0x80, UPLOAD_ADDR + 0x94, UPLOAD_ADDR + 0xA8);
 	execute_command(buf);
 	/* Write back to BOOTCONFIG and BOOTCONFIG1 partitions with dynamic size */
-	sprintf(buf, "flash 0:BOOTCONFIG 0x%lx 0x%lx && flash 0:BOOTCONFIG1 0x%lx 0x%lx", UPLOAD_ADDR, get_bootconfig_size(), UPLOAD_ADDR, get_bootconfig_size());
+	sprintf(buf, "flash 0:BOOTCONFIG 0x%lx 0x%lx && flash 0:BOOTCONFIG1 0x%lx 0x%lx", UPLOAD_ADDR, (unsigned long)get_bootconfig_size(), UPLOAD_ADDR, (unsigned long)get_bootconfig_size());
 	if (execute_command(buf) != 0) {
 		printf("\n* Failed to write BOOTCONFIG *\n");
 		return -1;
@@ -280,47 +255,108 @@ static int do_firmware_upgrade(const ulong size) {
 			int fw_type = check_fw_type((void *)UPLOAD_ADDR);
 			if (fw_type == FW_TYPE_FIT) {
 				print_upgrade_warning("FIRMWARE");
-				/* Call extended check_fw_type to get both type and HLOS size */
 				struct fw_info info = check_fw_type_ex((void*)UPLOAD_ADDR);
-				unsigned long actual_hlos_size = (unsigned long)info.hlos_size;
-				unsigned long hlos_size = get_hlos_size();
-				unsigned long rootfs_size = get_rootfs_size();
-				/* Calculate rootfs size based on actual HLOS size */
-				unsigned long actual_rootfs_size = (size > actual_hlos_size) ? (size - actual_hlos_size) : 0;
-				/* Limit actual sizes to partition capacities */
-				if(actual_hlos_size > hlos_size) actual_hlos_size = hlos_size;
-				if(actual_rootfs_size > rootfs_size) actual_rootfs_size = rootfs_size;
-				/* Verify partition sizes are not zero */
+				u64 actual_hlos_size = info.hlos_size;
+				u64 hlos_size = get_hlos_size();
+				u64 rootfs_size = get_rootfs_size();
+				u64 actual_rootfs_size = (size > actual_hlos_size) ? (size - actual_hlos_size) : 0;
+				if(actual_hlos_size > hlos_size && hlos_size > 0) actual_hlos_size = hlos_size;
+				if(actual_rootfs_size > rootfs_size && rootfs_size > 0) actual_rootfs_size = rootfs_size;
 				if(actual_hlos_size == 0 && actual_rootfs_size == 0) {
 					printf("Error: Both HLOS and rootfs partition sizes are zero\n");
 					return -1;
 				}
-				sprintf(buf, "flash 0:HLOS 0x%lx 0x%lx && flash rootfs 0x%lx 0x%lx && flash 0:HLOS_1 0x%lx 0x%lx && flash rootfs_1 0x%lx 0x%lx",
+				sprintf(buf, "flash 0:HLOS 0x%lx 0x%llx && flash rootfs 0x%lx 0x%llx",
 				UPLOAD_ADDR, actual_hlos_size,
-				UPLOAD_ADDR + actual_hlos_size, actual_rootfs_size,
-				UPLOAD_ADDR, actual_hlos_size,
-				UPLOAD_ADDR + actual_hlos_size, actual_rootfs_size);
-				/* Print detected HLOS size info */
-				//printf("Detected HLOS size: 0x%lx, Calculated rootfs size: 0x%lx\n", actual_hlos_size, actual_rootfs_size);
-				/* Execute flash command first */
+				(unsigned long)(UPLOAD_ADDR + actual_hlos_size), actual_rootfs_size);
 				if(execute_command(buf) != 0) {
-					printf("Failed to execute flash command\n");
+					printf("Failed to flash primary partitions\n");
 					return -1;
 				}
-				return update_bootconfig();
+				if (webfailsafe_backup_avail_enabled) {
+					u64 hlos_1_size = get_hlos_1_size();
+					u64 rootfs_1_size = get_rootfs_1_size();
+					if(actual_hlos_size <= hlos_1_size && actual_rootfs_size <= rootfs_1_size) {
+						sprintf(buf, "flash 0:HLOS_1 0x%lx 0x%llx && flash rootfs_1 0x%lx 0x%llx",
+						UPLOAD_ADDR, actual_hlos_size,
+						(unsigned long)(UPLOAD_ADDR + actual_hlos_size), actual_rootfs_size);
+						if(execute_command(buf) != 0) {
+							printf("Warning: Failed to flash backup partitions, skipping\n");
+						}
+					} else {
+					printf("backup too small, skip\n");
+					}
+				}
+			} else if (fw_type == FW_TYPE_SYSUPGRADE) {
+				print_upgrade_warning("FIRMWARE");
+				sysupgrade_fw_parts parts = parse_sysupgrade_firmware((void *)UPLOAD_ADDR, size);
+				if (!sysupgrade_parts_valid(&parts)) {
+					printf("parse failed\n");
+					return -1;
+				}
+				u64 hlos_size = get_hlos_size();
+				u64 rootfs_size = get_rootfs_size();
+				u64 actual_kernel_size = parts.kernel_size;
+				u64 actual_rootfs_size = parts.rootfs_size;
+				if ((hlos_size > 0 && actual_kernel_size > hlos_size) ||
+				    (rootfs_size > 0 && actual_rootfs_size > rootfs_size)) {
+					printf("SYSUPGRADE component exceeds target partition\n");
+					return -1;
+				}
+				if (actual_kernel_size == 0 && actual_rootfs_size == 0) {
+					printf("HLOS and rootfs both zero\n");
+					return -1;
+				}
+				if (parts.kernel_data && actual_kernel_size > 0) {
+					sprintf(buf, "flash 0:HLOS 0x%lx 0x%llx",
+						(unsigned long)parts.kernel_data, actual_kernel_size);
+					if (execute_command(buf) != 0) {
+						printf("HLOS flash failed\n");
+						return -1;
+					}
+				}
+				if (parts.rootfs_data && actual_rootfs_size > 0) {
+					sprintf(buf, "flash rootfs 0x%lx 0x%llx",
+						(unsigned long)parts.rootfs_data, actual_rootfs_size);
+					if (execute_command(buf) != 0) {
+						printf("rootfs flash failed\n");
+						return -1;
+					}
+				}
+				if (webfailsafe_backup_avail_enabled) {
+					u64 hlos_1_size = get_hlos_1_size();
+					u64 rootfs_1_size = get_rootfs_1_size();
+					if (actual_kernel_size <= hlos_1_size && actual_rootfs_size <= rootfs_1_size) {
+						if (parts.kernel_data && actual_kernel_size > 0) {
+							sprintf(buf, "flash 0:HLOS_1 0x%lx 0x%llx",
+								(unsigned long)parts.kernel_data, actual_kernel_size);
+							if (execute_command(buf) != 0)
+								printf("HLOS_1 skip\n");
+						}
+						if (parts.rootfs_data && actual_rootfs_size > 0) {
+							sprintf(buf, "flash rootfs_1 0x%lx 0x%llx",
+								(unsigned long)parts.rootfs_data, actual_rootfs_size);
+							if (execute_command(buf) != 0)
+								printf("rootfs_1 skip\n");
+						}
+					} else {
+					printf("backup too small, skip\n");
+					}
+				}
 			} else if (fw_type == FW_TYPE_QSDK) {
 				print_upgrade_warning("FIRMWARE");
-				sprintf(buf, "imxtract 0x%lx %s && flash 0:HLOS $fileaddr $filesize && imxtract 0x%lx %s && flash rootfs $fileaddr $filesize && imxtract 0x%lx %s && flash 0:WIFIFW $fileaddr $filesize && flasherase rootfs_data",
+				sprintf(buf, "imxtract 0x%lx %s && flash 0:HLOS $fileaddr $filesize && imxtract 0x%lx %s && flash rootfs $fileaddr $filesize && imxtract 0x%lx %s && flash 0:WIFIFW $fileaddr $filesize",
 					UPLOAD_ADDR, HLOS_NAME, UPLOAD_ADDR, ROOTFS_NAME, UPLOAD_ADDR, WIFIFW_NAME);
 				if (execute_command(buf) != 0) {
 					printf("Failed to execute flash command\n");
 					return -1;
 				}
-				return update_bootconfig();
 			} else {
 				printf("\n* Unsupported FIRMWARE type *\n");
 				return -1;
 			}
+			execute_command("flasherase rootfs_data");
+			return update_bootconfig();
 			break;
 		}
 #endif
@@ -330,27 +366,48 @@ static int do_firmware_upgrade(const ulong size) {
 			int fw_type = check_fw_type((void *)UPLOAD_ADDR);
 			if (fw_type == FW_TYPE_UBI) {
 				print_upgrade_warning("FIRMWARE");
-				sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", ROOTFS_NAME0, UPLOAD_ADDR, ROOTFS_NAME1, UPLOAD_ADDR, ROOTFS_NAME2, UPLOAD_ADDR, ROOTFS_NAME_1, UPLOAD_ADDR);
+				if (webfailsafe_backup_avail_enabled)
+					sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", ROOTFS_NAME0, UPLOAD_ADDR, ROOTFS_NAME1, UPLOAD_ADDR, ROOTFS_NAME2, UPLOAD_ADDR, ROOTFS_NAME_1, UPLOAD_ADDR);
+				else
+					sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", ROOTFS_NAME0, UPLOAD_ADDR, ROOTFS_NAME1, UPLOAD_ADDR, ROOTFS_NAME2, UPLOAD_ADDR);
+			} else if (fw_type == FW_TYPE_FIT) {
+				print_upgrade_warning("FIRMWARE");
+				sprintf(buf, "sf probe; imgaddr=0x%lx && source $imgaddr:script", UPLOAD_ADDR);
+			} else if (fw_type == FW_TYPE_SYSUPGRADE) {
+				print_upgrade_warning("FIRMWARE");
+				sysupgrade_fw_parts parts = parse_sysupgrade_firmware((void *)UPLOAD_ADDR, size);
+				if (!sysupgrade_parts_valid(&parts)) {
+					printf("parse failed\n");
+					return -1;
+				}
+#ifdef CONFIG_CMD_UBI
+				if (sysupgrade_write_ubi_volumes(&parts, webfailsafe_backup_avail_enabled) != 0)
+					return -1;
+				return 0;
+#else
+				printf("SYSUPGRADE requires UBI\n");
+				return -1;
+#endif
 			} else if (fw_type == FW_TYPE_QSDK) {
 				print_upgrade_warning("FIRMWARE");
 				sprintf(buf, "sf probe; imgaddr=0x%lx && source $imgaddr:script", UPLOAD_ADDR);
 			} else {
-				printf("\n* NAND flash only supports UBI/QSDK firmware, got: %s *\n", fw_type_to_string(fw_type));
+				printf("\n* NAND flash only supports UBI/FIT/SYSUPGRADE/QSDK firmware, got: %s *\n", fw_type_to_string(fw_type));
 				return -1;
 			}
 			break;
 		}
 		case SMEM_BOOT_NOR_FLASH: {
 			int fw_type = check_fw_type((void *)UPLOAD_ADDR);
-			if (fw_type == FW_TYPE_FIT || fw_type == FW_TYPE_QSDK) {
+			if (fw_type == FW_TYPE_FIT || fw_type == FW_TYPE_SYSUPGRADE || fw_type == FW_TYPE_QSDK) {
 				print_upgrade_warning("FIRMWARE");
-				if (fw_type == FW_TYPE_FIT) {
-					sprintf(buf, "sf probe && sf erase 0x%lx 0x%lx && sf write 0x%lx 0x%lx 0x%lx", NOR_FIRMWARE_START, NOR_FIRMWARE_SIZE, UPLOAD_ADDR, NOR_FIRMWARE_START, size);
+				if (fw_type == FW_TYPE_FIT || fw_type == FW_TYPE_SYSUPGRADE) {
+					sprintf(buf, "sf probe && sf erase 0x%lx 0x%lx && sf write 0x%lx 0x%lx 0x%lx", (unsigned long)NOR_FIRMWARE_START, (unsigned long)NOR_FIRMWARE_SIZE, UPLOAD_ADDR, (unsigned long)NOR_FIRMWARE_START, size);
 				} else {
 					sprintf(buf, "sf probe; imgaddr=0x%lx && source $imgaddr:script", UPLOAD_ADDR);
 				}
 			} else {
-				printf("\n* NOR flash only supports FIT/QSDK firmware, got: %s *\n", fw_type_to_string(fw_type));
+				printf("\n* NOR flash only supports FIT/SYSUPGRADE/QSDK firmware, got: %s *\n", fw_type_to_string(fw_type));
 				return -1;
 			}
 			break;
@@ -360,24 +417,42 @@ static int do_firmware_upgrade(const ulong size) {
 			if (get_which_flash_param("rootfs") > 0) {
 				if (fw_type == FW_TYPE_UBI) {
 					print_upgrade_warning("FIRMWARE");
-					sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", ROOTFS_NAME0, UPLOAD_ADDR, ROOTFS_NAME1, UPLOAD_ADDR, ROOTFS_NAME2, UPLOAD_ADDR, ROOTFS_NAME_1, UPLOAD_ADDR);
+					if (webfailsafe_backup_avail_enabled)
+						sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", ROOTFS_NAME0, UPLOAD_ADDR, ROOTFS_NAME1, UPLOAD_ADDR, ROOTFS_NAME2, UPLOAD_ADDR, ROOTFS_NAME_1, UPLOAD_ADDR);
+					else
+						sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", ROOTFS_NAME0, UPLOAD_ADDR, ROOTFS_NAME1, UPLOAD_ADDR, ROOTFS_NAME2, UPLOAD_ADDR);
+				} else if (fw_type == FW_TYPE_SYSUPGRADE) {
+					print_upgrade_warning("FIRMWARE");
+					sysupgrade_fw_parts parts = parse_sysupgrade_firmware((void *)UPLOAD_ADDR, size);
+					if (!sysupgrade_parts_valid(&parts)) {
+						printf("parse failed\n");
+						return -1;
+					}
+#ifdef CONFIG_CMD_UBI
+					if (sysupgrade_write_ubi_volumes(&parts, webfailsafe_backup_avail_enabled) != 0)
+						return -1;
+					return 0;
+#else
+					printf("SYSUPGRADE requires UBI\n");
+					return -1;
+#endif
 				} else if (fw_type == FW_TYPE_QSDK) {
 					print_upgrade_warning("FIRMWARE");
 					sprintf(buf, "sf probe; imgaddr=0x%lx && source $imgaddr:script", UPLOAD_ADDR);
 				} else {
-					printf("\n* SPI+NAND flash only supports UBI/QSDK firmware, got: %s *\n", fw_type_to_string(fw_type));
+					printf("\n* SPI+NAND flash only supports UBI/SYSUPGRADE/QSDK firmware, got: %s *\n", fw_type_to_string(fw_type));
 					return -1;
 				}
 			} else {
-				if (fw_type == FW_TYPE_FIT || fw_type == FW_TYPE_QSDK) {
+				if (fw_type == FW_TYPE_FIT || fw_type == FW_TYPE_SYSUPGRADE || fw_type == FW_TYPE_QSDK) {
 					print_upgrade_warning("FIRMWARE");
-					if (fw_type == FW_TYPE_FIT) {
-						sprintf(buf, "sf probe && sf erase 0x%lx 0x%lx && sf write 0x%lx 0x%lx 0x%lx", NOR_FIRMWARE_START, NOR_FIRMWARE_SIZE, UPLOAD_ADDR, NOR_FIRMWARE_START, size);
+					if (fw_type == FW_TYPE_FIT || fw_type == FW_TYPE_SYSUPGRADE) {
+						sprintf(buf, "sf probe && sf erase 0x%lx 0x%lx && sf write 0x%lx 0x%lx 0x%lx", (unsigned long)NOR_FIRMWARE_START, (unsigned long)NOR_FIRMWARE_SIZE, UPLOAD_ADDR, (unsigned long)NOR_FIRMWARE_START, size);
 					} else {
 						sprintf(buf, "sf probe; imgaddr=0x%lx && source $imgaddr:script", UPLOAD_ADDR);
 					}
 				} else {
-					printf("\n* NOR flash only supports FIT/QSDK firmware, got: %s *\n", fw_type_to_string(fw_type));
+					printf("\n* NOR flash only supports FIT/SYSUPGRADE/QSDK firmware, got: %s *\n", fw_type_to_string(fw_type));
 					return -1;
 				}
 			}
@@ -402,7 +477,10 @@ static int do_uboot_upgrade(const ulong size) {
 	print_upgrade_warning("U-BOOT");
 	switch (flash_type) {
 		case SMEM_BOOT_MMC_FLASH:
-			sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash 0:APPSBL 0x%lx $filesize && flash 0:APPSBL_1 0x%lx $filesize", UPLOAD_ADDR + size, UPLOAD_ADDR, UPLOAD_ADDR);
+			if (webfailsafe_backup_avail_enabled)
+				sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash 0:APPSBL 0x%lx $filesize && flash 0:APPSBL_1 0x%lx $filesize", UPLOAD_ADDR + size, UPLOAD_ADDR, UPLOAD_ADDR);
+			else
+				sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash 0:APPSBL 0x%lx $filesize", UPLOAD_ADDR + size, UPLOAD_ADDR);
 			break;
 		case SMEM_BOOT_NAND_FLASH:
 		case SMEM_BOOT_SPI_FLASH:
@@ -410,7 +488,10 @@ static int do_uboot_upgrade(const ulong size) {
 		case SMEM_BOOT_QSPI_NAND_FLASH:
 		case SMEM_BOOT_NORPLUSEMMC:
 		case SMEM_BOOT_NORPLUSNAND:
-			sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", UBOOT_NAME, UPLOAD_ADDR, UBOOT_NAME_1, UPLOAD_ADDR);
+			if (webfailsafe_backup_avail_enabled)
+				sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", UBOOT_NAME, UPLOAD_ADDR, UBOOT_NAME_1, UPLOAD_ADDR);
+			else
+				sprintf(buf, "flash %s 0x%lx $filesize", UBOOT_NAME, UPLOAD_ADDR);
 			break;
 		default:
 			printf("\n* Unsupported flash type for U-Boot *\n");
@@ -452,6 +533,7 @@ static int do_art_upgrade(const ulong size) {
 static int do_gpt_upgrade(const ulong size) {
 	char buf[576];
 	uint32_t flash_type;
+
 	if (get_current_flash_type(&flash_type) != 0)
 		return -1;
 	if (check_fw_type((void *)UPLOAD_ADDR) != FW_TYPE_GPT) {
@@ -462,7 +544,10 @@ static int do_gpt_upgrade(const ulong size) {
 	switch (flash_type) {
 		case SMEM_BOOT_MMC_FLASH:
 		case SMEM_BOOT_NORPLUSEMMC:
-			sprintf(buf, "mmc dev 0 && mmc erase 0x0 0x%lx && mmc write 0x%lx 0x0 0x%lx", ((size - 1) / 512 + 1), UPLOAD_ADDR, ((size - 1) / 512 + 1));
+			if (webfailsafe_backup_avail_enabled)
+				sprintf(buf, "flash 0:GPT 0x%lx 0x%lx && flash 0:GPTBACKUP 0x%lx 0x%lx", UPLOAD_ADDR, size, UPLOAD_ADDR, size);
+			else
+				sprintf(buf, "flash 0:GPT 0x%lx 0x%lx", UPLOAD_ADDR, size);
 			break;
 		case SMEM_BOOT_NAND_FLASH:
 		case SMEM_BOOT_SPI_FLASH:
@@ -472,6 +557,52 @@ static int do_gpt_upgrade(const ulong size) {
 		default:
 			printf("\n* Flash type %d is not supported for GPT upgrade! Please return and select upgrade type \"mibib\"\n", flash_type);
 			return -1;
+	}
+	return execute_command(buf);
+}
+
+int webfailsafe_img_flash = 0;
+
+static int do_img_upgrade(const ulong size) {
+	char buf[256];
+	switch (webfailsafe_img_flash) {
+		case IMG_FLASH_NOR: {
+			ulong erase_size = (size + 0xFFF) & ~0xFFFUL;
+			print_upgrade_warning("NOR");
+			sprintf(buf, "sf probe && sf erase 0x0 0x%lx && sf write 0x%lx 0x0 0x%lx", erase_size, UPLOAD_ADDR, size);
+			break;
+		}
+		case IMG_FLASH_NAND:
+		case IMG_FLASH_NAND_RAW: {
+			int nand_dev;
+			int raw = (webfailsafe_img_flash == IMG_FLASH_NAND_RAW);
+#ifdef CONFIG_IPQ40XX
+			nand_dev = is_spi_nand_available();
+#else
+			nand_dev = CONFIG_NAND_FLASH_INFO_IDX;
+#endif
+			print_upgrade_warning(raw ? "NAND (raw)" : "NAND");
+#ifdef CONFIG_CMD_NAND
+			if (raw) {
+				ulong pagecount = nand_info[nand_dev].size / nand_info[nand_dev].writesize;
+				sprintf(buf, "nand device %d && nand erase.chip && nand write.raw 0x%lx 0x0 %lx", nand_dev, UPLOAD_ADDR, pagecount);
+			} else
+#endif
+			{
+				sprintf(buf, "nand device %d && nand erase.chip && nand write 0x%lx 0x0 0x%lx", nand_dev, UPLOAD_ADDR, size);
+			}
+			break;
+		}
+#if defined(CONFIG_EFI_PARTITION) && defined(CONFIG_PARTITIONS) && defined(CONFIG_CMD_MMC)
+		case IMG_FLASH_EMMC: {
+			ulong blocks = (size - 1) / 512 + 1;
+			print_upgrade_warning("eMMC");
+			sprintf(buf, "mmc dev 0 && mmc erase 0x0 0x%lx && mmc write 0x%lx 0x0 0x%lx", blocks, UPLOAD_ADDR, blocks);
+			break;
+		}
+#endif
+		default:
+			return do_gpt_upgrade(size);
 	}
 	return execute_command(buf);
 }
@@ -488,7 +619,10 @@ static int do_cdt_upgrade(const ulong size) {
 	print_upgrade_warning("CDT");
 	switch (flash_type) {
 		case SMEM_BOOT_MMC_FLASH:
-			sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", UPLOAD_ADDR + size, CDT_NAME, UPLOAD_ADDR, CDT_NAME_1, UPLOAD_ADDR);
+			if (webfailsafe_backup_avail_enabled)
+				sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", UPLOAD_ADDR + size, CDT_NAME, UPLOAD_ADDR, CDT_NAME_1, UPLOAD_ADDR);
+			else
+				sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash %s 0x%lx $filesize", UPLOAD_ADDR + size, CDT_NAME, UPLOAD_ADDR);
 			break;
 		case SMEM_BOOT_NAND_FLASH:
 		case SMEM_BOOT_SPI_FLASH:
@@ -496,7 +630,10 @@ static int do_cdt_upgrade(const ulong size) {
 		case SMEM_BOOT_QSPI_NAND_FLASH:
 		case SMEM_BOOT_NORPLUSEMMC:
 		case SMEM_BOOT_NORPLUSNAND:
-			sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", CDT_NAME, UPLOAD_ADDR, CDT_NAME_1, UPLOAD_ADDR);
+			if (webfailsafe_backup_avail_enabled)
+				sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", CDT_NAME, UPLOAD_ADDR, CDT_NAME_1, UPLOAD_ADDR);
+			else
+				sprintf(buf, "flash %s 0x%lx $filesize", CDT_NAME, UPLOAD_ADDR);
 			break;
 		default:
 			printf("\n* Unsupported flash type for CDT *\n");
@@ -504,6 +641,46 @@ static int do_cdt_upgrade(const ulong size) {
 	}
 	return execute_command(buf);
 }
+
+#ifdef CONFIG_IPQ_MIBIB_RELOAD
+static int do_mibib_reload_partition(uint32_t flash_type) {
+	qca_smem_flash_info_t *sfi = &qca_smem_flash_info;
+	char buf[256];
+	uint32_t page_size = 0;
+	int is_nand = (flash_type == SMEM_BOOT_NAND_FLASH ||
+		       flash_type == SMEM_BOOT_QSPI_NAND_FLASH);
+
+	if (is_nand) {
+#ifdef CONFIG_CMD_NAND
+#ifdef CONFIG_IPQ40XX
+		int nand_dev = is_spi_nand_available();
+#else
+		int nand_dev = CONFIG_NAND_FLASH_INFO_IDX;
+#endif
+		if (nand_dev >= 0)
+			page_size = nand_info[nand_dev].writesize;
+#endif
+	} else if (flash_type == SMEM_BOOT_SPI_FLASH ||
+		   flash_type == SMEM_BOOT_NOR_FLASH ||
+		   flash_type == SMEM_BOOT_NORPLUSEMMC ||
+		   flash_type == SMEM_BOOT_NORPLUSNAND) {
+#ifdef CONFIG_SPI_FLASH
+		struct spi_flash *sf = spi_flash_probe(
+			CONFIG_SF_DEFAULT_BUS, CONFIG_SF_DEFAULT_CS,
+			CONFIG_SF_DEFAULT_SPEED, CONFIG_SF_DEFAULT_MODE);
+		if (sf)
+			page_size = sf->page_size;
+#endif
+	}
+
+	if (!page_size)
+		return -1;
+
+	sprintf(buf, "mibib_reload 0x%x 0x%x 0x%x 0x%x",
+		!is_nand, page_size, sfi->flash_block_size, sfi->flash_density);
+	return execute_command(buf) ? -1 : 0;
+}
+#endif
 
 static int do_mibib_upgrade(const ulong size) {
 	char buf[576];
@@ -528,7 +705,15 @@ static int do_mibib_upgrade(const ulong size) {
 			printf("\n* Unsupported flash type for MIBIB *\n");
 			return -1;
 	}
-	return execute_command(buf);
+
+	if (execute_command(buf) != 0) {
+#ifdef CONFIG_IPQ_MIBIB_RELOAD
+		if (do_mibib_reload_partition(flash_type) != 0 || execute_command(buf) != 0)
+#endif
+			return -1;
+	}
+
+	return 0;
 }
 
 static int do_ptable_upgrade(const ulong size) {
@@ -572,7 +757,7 @@ int do_http_progress(const int state) {
 #endif
 			led_on("blink_led");
 			led_off("system_led");
-			printf("HTTP server is ready!\n");
+			printf("HTTP server is ready!\nRun 'httpd s' to stop\n");
 			break;
 		case WEBFAILSAFE_PROGRESS_UPLOAD_READY:
 			led_on("blink_led");
@@ -586,7 +771,7 @@ int do_http_progress(const int state) {
 			led_toggle("blink_led");
 #endif
 			break;
-	case WEBFAILSAFE_PROGRESS_UPGRADING:
+		case WEBFAILSAFE_PROGRESS_UPGRADING:
 			led_toggle("blink_led");
 			break;
 		case WEBFAILSAFE_PROGRESS_UPGRADE_READY:
@@ -603,46 +788,6 @@ int do_http_progress(const int state) {
 			break;
 	}
 	return 0;
-}
-
-void NetSendHttpd(void) {
-	volatile uchar *tmpbuf = net_tx_packet;
-	int i;
-	for (i = 0; i < 40 + UIP_LLH_LEN; i++) tmpbuf[i] = uip_buf[i];
-	for (; i < uip_len; i++) tmpbuf[i] = uip_appdata[i - 40 - UIP_LLH_LEN];
-	eth_send(net_tx_packet, uip_len);
-}
-
-void NetReceiveHttpd(volatile uchar *inpkt, int len) {
-	memcpy(uip_buf, (const void *)inpkt, len);
-	uip_len = len;
-	struct uip_eth_hdr *tmp = (struct uip_eth_hdr *)&uip_buf[0];
-	if (tmp->type == htons(UIP_ETHTYPE_IP)) {
-		uip_arp_ipin();
-		uip_input();
-		if (uip_len > 0) {
-			uip_arp_out();
-			NetSendHttpd();
-		}
-	} else if (tmp->type == htons(UIP_ETHTYPE_ARP)) {
-		uip_arp_arpin();
-		if (uip_len > 0) NetSendHttpd();
-	}
-}
-
-void HttpdHandler(void) {
-	int i;
-	for (i = 0; i < UIP_CONNS; i++) {
-		uip_periodic(i);
-		if (uip_len > 0) {
-			uip_arp_out();
-			NetSendHttpd();
-		}
-	}
-	if (++arptimer == 20) {
-		uip_arp_timer();
-		arptimer = 0;
-	}
 }
 
 int do_httpd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]) {
@@ -666,9 +811,9 @@ int do_httpd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]) {
 		unsigned int octets[4];
 		char serverip[16];
 
-		if (httpd_parse_ipv4(argv[1], octets, &custom_ip) < 0) {
+		if (httpd_parse_ipv4(argv[1], octets, &custom_ip) < 0)
 			return CMD_RET_USAGE;
-		}
+
 		httpd_make_serverip(octets, serverip);
 		httpd_set_recovery_network(argv[1], serverip, custom_ip);
 	} else {

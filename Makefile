@@ -573,19 +573,19 @@ KBUILD_CFLAGS += -DBUILD_TAG='"$(BUILD_TAG)"'
 endif
 
 ifdef CONFIG_ARCH_IPQ807x
-KBUILD_CFLAGS += $(call cc-option,-fstack-protector)
+KBUILD_CFLAGS += $(call cc-option,-fno-stack-protector)
 else
 ifdef CONFIG_ARCH_IPQ5018
-KBUILD_CFLAGS += $(call cc-option,-fstack-protector)
+KBUILD_CFLAGS += $(call cc-option,-fno-stack-protector)
 else
 ifdef CONFIG_ARCH_IPQ5332
-KBUILD_CFLAGS += $(call cc-option,-fstack-protector)
+KBUILD_CFLAGS += $(call cc-option,-fno-stack-protector)
 else
 ifdef CONFIG_ARCH_IPQ6018
-KBUILD_CFLAGS += $(call cc-option,-fstack-protector)
+KBUILD_CFLAGS += $(call cc-option,-fno-stack-protector)
 else
 ifdef CONFIG_ARCH_IPQ9574
-KBUILD_CFLAGS += $(call cc-option,-fstack-protector)
+KBUILD_CFLAGS += $(call cc-option,-fno-stack-protector)
 else
 KBUILD_CFLAGS += $(call cc-option, -fno-stack-protector)
 endif
@@ -700,9 +700,7 @@ libs-$(CONFIG_HAS_POST) += post/
 libs-y += test/
 libs-y += test/dm/
 libs-$(CONFIG_UT_ENV) += test/env/
-#ifdef CONFIG_HTTPD
-libs-$(CONFIG_HTTPD) += httpd/
-#endif
+libs-$(CONFIG_LWIP_HTTPD) += failsafe/
 
 libs-y += $(if $(BOARDDIR),board/$(BOARDDIR)/)
 
@@ -922,6 +920,8 @@ u-boot.bin: u-boot FORCE
 	$(BOARD_SIZE_CHECK)
 
 ifneq ($(CONFIG_COMPRESSED_DTB_BASE),)
+.PHONY: dtb_combined
+dtb_combined: combine_dtb_Linker
 dtb_combined.bin: dtb_combined  FORCE
 	$(call if_changed,nobjcopy)
 endif
@@ -1248,7 +1248,7 @@ quiet_cmd_dtb_combined__ ?= LD      $@
       --start-group arch/$(ARCH)/dts/built-in.o --end-group                 \
       $(PLATFORM_LIBS) -Map dtb_combined.map
 
-combine_dtb_Linker: combined_dtb.lds
+combine_dtb_Linker: $(u-boot-init) combined_dtb.lds
 	$(call if_changed,dtb_combined__)
 
 compress_dtb: combine_dtb_Linker dtb_combined.bin $(compressed_dtb-dirs)
@@ -1287,7 +1287,7 @@ $(u-boot-dirs): prepare scripts
 	$(Q)$(MAKE) $(build)=$@
 
 ifneq ($(CONFIG_COMPRESSED_DTB_BASE),)
-$(compressed_dtb-dirs): prepare scripts
+$(compressed_dtb-dirs): prepare scripts dtb_combined.bin
 	$(Q)$(MAKE) $(build)=$@
 endif
 
@@ -1396,15 +1396,15 @@ $(version_h): include/config/uboot.release FORCE
 
 $(timestamp_h): $(srctree)/Makefile FORCE
 	$(call filechk,timestamp.h)
-#ifdef CONFIG_HTTPD
+#ifdef CONFIG_LWIP_HTTPD
 	build_date=$$(LC_ALL=C date +'%b %d %Y'); \
 	build_hash=$$(git -C $(srctree) rev-parse --short HEAD 2>/dev/null || echo unknown); \
 	device_name=$$(sed -n 's/^CONFIG_BOARD_DISPLAY_NAME="\(.*\)"/\1/p' $(KCONFIG_CONFIG) | head -n 1); \
 	[ -n "$$device_name" ] || device_name="Unknown Device"; \
 	footer_text="$$device_name | Version: ResQBoot g$$build_hash ($$build_date)"; \
-	footer_text="$$footer_text" $(PERL) -0pi -e '$$footer = $$ENV{footer_text}; $$footer =~ s/&/&amp;/g; $$footer =~ s/</&lt;/g; $$footer =~ s/>/&gt;/g; $$footer =~ s/"/&quot;/g; $$footer =~ s/\x27/&#39;/g; s#<p class="link-tip">[^<]*</p>#<p class="link-tip">$$footer</p>#g' $(CURDIR)/httpd/vendors/pig/*.html
-	cd $(srctree)/httpd; ./vendors/makefsdatac; cd -
-# endif
+	footer_text="$$footer_text" $(PERL) -0pi -e '$$footer = $$ENV{footer_text}; $$footer =~ s/&/&amp;/g; $$footer =~ s/</&lt;/g; $$footer =~ s/>/&gt;/g; $$footer =~ s/"/&quot;/g; $$footer =~ s/\x27/&#39;/g; s#<span id="footer-text">[^<]*</span>#<span id="footer-text">$$footer</span>#g' $(CURDIR)/failsafe/html/pig/*.html
+	cd $(srctree)/failsafe; ./html/makefsdatac; cd -
+#endif
 
 # ---------------------------------------------------------------------------
 quiet_cmd_cpp_lds = LDS     $@

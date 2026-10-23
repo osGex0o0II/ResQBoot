@@ -16,7 +16,7 @@
 #include <flash.h>
 #endif
 
-#if defined(CONFIG_HTTPD)
+#if defined(CONFIG_LWIP_HTTPD)
 #include <asm/gpio.h>
 #include <ipq_api.h>
 #endif
@@ -89,12 +89,12 @@ static int	tftp_state;
 #ifdef CONFIG_TFTP_TSIZE
 /* The file size reported by the server */
 static int	tftp_tsize;
-#if !defined(CONFIG_HTTPD)
+#if !defined(CONFIG_LWIP_HTTPD)
 /* The number of hashes we printed */
 static short	tftp_tsize_num_hash;
 #endif
 #endif
-#if defined(CONFIG_HTTPD)
+#if defined(CONFIG_LWIP_HTTPD)
 static unsigned char tftp_last_percent = 255;
 static unsigned short tftp_led_counter = 0;
 #endif
@@ -208,11 +208,15 @@ static inline void store_block(int block, uchar *src, unsigned len)
 		 */
 #ifdef CONFIG_IPQ806X
 		if ((load_addr + newsize) >= IPQ_TFTP_MAX_ADDR) {
+#elif defined(CONFIG_IPQ40XX)
+		if (((load_addr + newsize) > CONFIG_SYS_SDRAM_END) ||
+		    (load_addr < CONFIG_TZ_END_ADDR &&
+		     (load_addr + newsize) > CONFIG_IPQ_FDT_HIGH)) {
 #else
 		if (((load_addr + newsize) >= CONFIG_SYS_SDRAM_END) ||
 		    (((load_addr + newsize) >= CONFIG_IPQ_FDT_HIGH) &&
 		     ((load_addr + newsize) < CONFIG_TZ_END_ADDR))) {
-#endif /* CONFIG_IPQ806X */
+#endif
 			puts("\nError file size too large\n");
 			net_set_state(NETLOOP_FAIL);
 			return;
@@ -268,7 +272,7 @@ static int load_block(unsigned block, uchar *dst, unsigned len)
 static void tftp_send(void);
 static void tftp_timeout_handler(void);
 
-#if defined(CONFIG_HTTPD)
+#if defined(CONFIG_LWIP_HTTPD)
 static void tftp_show_progress(unsigned long pos, unsigned long total,
 				const char *prefix)
 {
@@ -291,12 +295,6 @@ static void tftp_show_progress(unsigned long pos, unsigned long total,
 	}
 }
 
-static void tftp_show_complete(unsigned long total)
-{
-	printf("  ");
-	print_size(total, "");
-}
-
 static void tftp_led_tick(void)
 {
 	tftp_led_counter++;
@@ -311,7 +309,7 @@ static void tftp_led_tick(void)
 
 static void show_block_marker(void)
 {
-#if defined(CONFIG_HTTPD)
+#if defined(CONFIG_LWIP_HTTPD)
 	unsigned long pos = tftp_cur_block * tftp_block_size +
 		tftp_block_wrap_offset;
 	const char *prefix = tftp_put_active ? "Saving" : "Loading";
@@ -392,18 +390,9 @@ static void update_block_number(void)
 /* The TFTP get or put is complete */
 static void tftp_complete(void)
 {
-#if defined(CONFIG_HTTPD)
-#ifdef CONFIG_TFTP_TSIZE
-	if (tftp_tsize)
-		tftp_show_complete(tftp_tsize);
-	else
-#endif
-#ifdef CONFIG_CMD_TFTPPUT
-	if (tftp_put_active && save_size)
-		tftp_show_complete(save_size);
-	else
-#endif
+#if defined(CONFIG_LWIP_HTTPD)
 	printf("\r%s: OK  ", tftp_put_active ? "Saving" : "Loading");
+	print_size(net_boot_file_size, "");
 #else
 #ifdef CONFIG_TFTP_TSIZE
 	while (tftp_tsize && tftp_tsize_num_hash < 49) {
@@ -421,7 +410,7 @@ static void tftp_complete(void)
 			time_start * 1000, "/s");
 	}
 	puts("\ndone\n");
-#if defined(CONFIG_HTTPD)
+#if defined(CONFIG_LWIP_HTTPD)
 	led_on("power_led");
 #endif
 	net_set_state(NETLOOP_SUCCESS);
@@ -969,11 +958,11 @@ void tftp_start(enum proto_t protocol)
 #endif
 #ifdef CONFIG_TFTP_TSIZE
 	tftp_tsize = 0;
-#if !defined(CONFIG_HTTPD)
+#if !defined(CONFIG_LWIP_HTTPD)
 	tftp_tsize_num_hash = 0;
 #endif
 #endif
-#if defined(CONFIG_HTTPD)
+#if defined(CONFIG_LWIP_HTTPD)
 	tftp_last_percent = 255;
 	tftp_led_counter = 0;
 #endif
@@ -1004,11 +993,11 @@ void tftp_start_server(void)
 
 #ifdef CONFIG_TFTP_TSIZE
 	tftp_tsize = 0;
-#if !defined(CONFIG_HTTPD)
+#if !defined(CONFIG_LWIP_HTTPD)
 	tftp_tsize_num_hash = 0;
 #endif
 #endif
-#if defined(CONFIG_HTTPD)
+#if defined(CONFIG_LWIP_HTTPD)
 	tftp_last_percent = 255;
 	tftp_led_counter = 0;
 #endif

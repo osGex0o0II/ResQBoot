@@ -247,7 +247,7 @@ typedef struct {
 #define CONFIG_IPQ40XX_ESS	1
 #define CONFIG_IPQ40XX_EDMA     1
 #define CONFIG_NET_RETRY_COUNT          5
-#define CONFIG_SYS_RX_ETH_BUFFER        16
+#define CONFIG_SYS_RX_ETH_BUFFER        128
 #define CONFIG_IPQ_MDIO     	1
 #define CONFIG_QCA8075_PHY      1
 #if !defined(CONFIG_IPQ40XX_ALIYUN_AP4220) && \
@@ -262,7 +262,7 @@ typedef struct {
 #define CONFIG_SERVERIP 192.168.1.2
 #define CONFIG_IPQ_NO_MACS      2
 #define CONFIG_CMD_TFTPPUT
-#define CONFIG_HTTPD
+#define CONFIG_LWIP_HTTPD
 #define CONFIG_DHCPD
 #define CONFIG_CMD_DHCPD
 #define CONFIG_SYS_LONGHELP

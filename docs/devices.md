@@ -40,6 +40,8 @@ Release 资产使用以下命名格式：
 | IPQ5332 | `ipq5332_jdcloud_be6500` | JDCloud BE6500 (JDBox RE-CS-06) | `IPQ5332-JDCloud-BE6500.mbn` | 0x8060000 | ✓ | `./build.sh ipq5332_jdcloud_be6500` |
 | IPQ5332 | `ipq5332_xiaomi_be306` | Xiaomi BE306 | `IPQ5332-Xiaomi-BE306.mbn` | 0x8060004 | × | `./build.sh ipq5332_xiaomi_be306` |
 | IPQ5332 | `ipq5332_xiaomi_be6500` | Xiaomi BE6500 (RN02) | `IPQ5332-Xiaomi-BE6500.mbn` | 0x8060001 | ✓ | `./build.sh ipq5332_xiaomi_be6500` |
+| IPQ5332 | `ipq5332_xiaomi_be3600_pro_wired_5ports` | Xiaomi BE3600 Pro Wired 5-Ports | `IPQ5332-Xiaomi-BE3600-Pro-5Ports.mbn` | 0x8060004 | ? | `./build.sh ipq5332_xiaomi_be3600_pro_wired_5ports` |
+| IPQ5332 | `ipq5332_xiaomi_be3600_pro_wired_8ports` | Xiaomi BE3600 Pro Wired 8-Ports | `IPQ5332-Xiaomi-BE3600-Pro-8Ports.mbn` | 0x8060004 | ? | `./build.sh ipq5332_xiaomi_be3600_pro_wired_8ports` |
 | IPQ5332 | `ipq5332_tiny` | QCA Tiny Common | `IPQ5332-QCA-Tiny.mbn` | --- | ✓ | `./build.sh ipq5332_tiny` |
 | IPQ5332 | `ipq5332_tiny_nor` | QCA Tiny NOR Common | `IPQ5332-QCA-Tiny-NOR.mbn` | --- | ✓ | `./build.sh ipq5332_tiny_nor` |
 | IPQ5332 | `ipq5332_tiny_debug` | QCA Tiny Debug Common | `IPQ5332-QCA-Tiny-Debug.mbn` | --- | ✓ | `./build.sh ipq5332_tiny_debug` |
@@ -66,4 +68,5 @@ Release 资产使用以下命名格式：
 | IPQ807x | `ipq807x_tiny` | QCA Tiny Common | `IPQ807x-QCA-Tiny.mbn` | --- | ✓ | `./build.sh ipq807x_tiny` |
 | IPQ807x | `ipq807x_xglink_5gcpe` | XGlink 5GCPE | `IPQ807x-XGlink-5GCPE.mbn` | 0x08010008 | ✓ | `./build.sh ipq807x_xglink_5gcpe` |
 | IPQ807x | `ipq807x` | QCA Common | `IPQ807x-QCA-Common.mbn` | --- | ✓ | `./build.sh ipq807x` |
+| IPQ9574 | `ipq9574_xiaomi_be7000` | Xiaomi BE7000 | `IPQ9574-Xiaomi-BE7000.mbn` | 0x8050001 | ? | `./build.sh ipq9574_xiaomi_be7000` |
 | IPQ9574 | `ipq9574` | QCA Common | `IPQ9574-QCA-Common.mbn` | --- | ? | `./build.sh ipq9574` |

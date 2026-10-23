@@ -1,6 +1,26 @@
 config QCA_COMMON
 	bool "QCA Common IPs"
 
+config IPQ_MIBIB_RELOAD
+	bool "Support MIBIB partition table reload from memory"
+	depends on QCA_COMMON
+	default y
+	help
+	  Enable reloading the MIBIB partition table from memory when
+	  flash write fails (e.g. in EDL/9008 mode with empty flash).
+	  This allows the system to parse partition layout from an
+	  uploaded MIBIB image and retry the flash write operation.
+
+config MACADDR_MODIFY
+	bool "Support MAC address modification via ART partition"
+	depends on QCA_COMMON
+	default y
+	help
+	  Enable writing MAC addresses to the ART calibration data partition.
+	  This allows the failsafe HTTP server to modify device MAC addresses
+	  through the web interface. The XOR16 checksum is recalculated
+	  automatically after modification.
+
 config SKIP_RESET
 	bool "Skip reset after crash dump"
 	default n

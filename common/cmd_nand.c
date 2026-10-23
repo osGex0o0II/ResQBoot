@@ -297,6 +297,33 @@ static void nand_print_and_set_info(int idx)
 	printf("  subpagesize %8d b\n", chip->subpagesize);
 	printf("  options     0x%8x\n", chip->options);
 	printf("  bbt options 0x%8x\n", chip->bbt_options);
+	if (nand->oobsize != 0) {
+#ifdef CONFIG_SYS_NAND_ONFI_DETECTION
+		if (chip->onfi_version) {
+			printf("  ONFI version       %d.%d\n",
+			       chip->onfi_version / 10, chip->onfi_version % 10);
+		}
+#endif
+		printf("  ID            ");
+		{
+			int i, id_len;
+			id_len = 4;
+			for (i = 4; i < 8; i++) {
+				if (chip->id_data[i] != 0)
+					id_len = i + 1;
+			}
+			for (i = 0; i < id_len; i++)
+				printf("%02x", chip->id_data[i]);
+		}
+		printf("\n");
+#ifdef CONFIG_SYS_NAND_ONFI_DETECTION
+		if (chip->onfi_version)
+			printf("  Chip name  %s\n", chip->onfi_params.model);
+		else
+#endif
+		if (chip->chip_name)
+			printf("  Chip name  %s\n", chip->chip_name);
+	}
 
 	/* Set geometry info */
 	setenv_hex("nand_writesize", nand->writesize);
@@ -308,6 +335,7 @@ static int raw_access(nand_info_t *nand, ulong addr, loff_t off, ulong count,
 			int read)
 {
 	int ret = 0;
+	loff_t last_bad_block = -1;
 
 	while (count--) {
 		/* Raw access */
@@ -318,6 +346,22 @@ static int raw_access(nand_info_t *nand, ulong addr, loff_t off, ulong count,
 			.ooblen = nand->oobsize,
 			.mode = MTD_OPS_RAW
 		};
+
+		loff_t block_off = off & ~(nand->erasesize - 1);
+
+		if (nand_block_isbad(nand, block_off)) {
+			if (block_off != last_bad_block) {
+				printf("Skip bad block at 0x%08llx\n",
+					(unsigned long long)block_off);
+				last_bad_block = block_off;
+			}
+			if (read)
+				memset((void *)addr, 0xff,
+					nand->writesize + nand->oobsize);
+			addr += nand->writesize + nand->oobsize;
+			off += nand->writesize;
+			continue;
+		}
 
 		if (read) {
 			ret = mtd_read_oob(nand, off, &ops);

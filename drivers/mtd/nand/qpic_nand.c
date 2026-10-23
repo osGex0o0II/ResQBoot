@@ -125,6 +125,43 @@ static struct qpic_serial_nand_params qpic_serial_nand_tbl[] = {
 		.check_quad_config = true,
 		.name = "GD5F4GQ6REYIHR",
 	},
+	/* Supports 1.8V (1.7V~2.0V) models with ID 0xC8,0x45:
+	 * GD5F4GQ6REYIG, GD5F4GQ6REBIG, GD5F4GQ6REZIG,
+	 * GD5F4GQ6REYFG, GD5F4GQ6REBFG, GD5F4GQ6REZFG,
+	 * GD5F4GQ6REYJG, GD5F4GQ6REBJG, GD5F4GQ6REZJG
+	 */
+	{
+		.id = { 0xc8, 0x45 },
+		.page_size = 2048,
+		.erase_blk_size = 0x00020000,
+		.pgs_per_blk = 64,
+		.no_of_blocks = 4096,
+		.spare_size = 128,
+		.density = 0x20000000,
+		.otp_region = 0x2000,
+		.no_of_addr_cycle = 0x3,
+		.num_bits_ecc_correctability = 4,
+		.timing_mode_support = 0,
+		.quad_mode = true,
+		.check_quad_config = true,
+		.name = "GD5F4GQ6RExxG",
+	},
+	{
+		.id = { 0xc8, 0xa4 },
+		.page_size = 4096,
+		.erase_blk_size = 0x00040000,
+		.pgs_per_blk = 64,
+		.no_of_blocks = 2048,
+		.spare_size = 256,
+		.density = 0x20000000,
+		.otp_region = 0x4400,
+		.no_of_addr_cycle = 0x3,
+		.num_bits_ecc_correctability = 8,
+		.timing_mode_support = 0,
+		.quad_mode = true,
+		.check_quad_config = true,
+		.name = "GD5F4GQ4RxxYIG", //GD5F4GQ4RCYIG,GD5F4GQ4RBYIGR,GD5F4GQ4RBYIGY
+	},
 	{
 		.id = { 0x2c, 0x15 },
 		.page_size = 2048,
@@ -350,6 +387,22 @@ static struct qpic_serial_nand_params qpic_serial_nand_tbl[] = {
 		.name = "F50D2G41KA-83YIG2V",
 	},
 	{
+		.id = { 0x2c, 0x35 },
+		.page_size = 4096,
+		.erase_blk_size = 0x00040000,
+		.pgs_per_blk = 64,
+		.no_of_blocks = 2048,
+		.spare_size = 256,
+		.density = 0x20000000,
+		.otp_region = 0x2000,
+		.no_of_addr_cycle = 3,
+		.num_bits_ecc_correctability = 8,
+		.timing_mode_support = 0,
+		.quad_mode = true,
+		.check_quad_config = true,
+		.name = "F50D4G41XB",
+	},
+	{
 		.id = { 0xe5, 0x21 },
 		.page_size = 2048,
 		.erase_blk_size = 0x00020000,
@@ -430,7 +483,7 @@ static struct qpic_serial_nand_params qpic_serial_nand_tbl[] = {
 		.name = "MX35UF1G24AD",
 	},
 	{
-		.id = { 0xA1, 0xA5 },
+		.id = { 0xa1, 0xa5 },
 		.page_size = 2048,
 		.erase_blk_size = 0x00020000,
 		.pgs_per_blk = 64,
@@ -446,7 +499,7 @@ static struct qpic_serial_nand_params qpic_serial_nand_tbl[] = {
 		.name = "FM25LS01",
 	},
 	{
-		.id = { 0xA1, 0xB6 },
+		.id = { 0xa1, 0xb6 },
 		.page_size = 2048,
 		.erase_blk_size = 0x00020000,
 		.pgs_per_blk = 64,
@@ -462,7 +515,7 @@ static struct qpic_serial_nand_params qpic_serial_nand_tbl[] = {
 		.name = "FM25LS02BI3",
 	},
 	{
-		.id = { 0xA1, 0xE4 },// 3.3V 1Gb Fudan Micro SPI NAND
+		.id = { 0xa1, 0xe4 },// 3.3V 1Gb Fudan Micro SPI NAND
 		.page_size = 2048,
 		.erase_blk_size = 0x00020000,
 		.pgs_per_blk = 64,
@@ -1160,6 +1213,7 @@ qpic_nand_onfi_save_params(struct mtd_info *mtd,
 			   struct onfi_param_page *param_page)
 {
 	struct qpic_nand_dev *dev = MTD_QPIC_NAND_DEV(mtd);
+	struct nand_chip *chip = MTD_NAND_CHIP(mtd);
 	int onfi_ret = NANDC_RESULT_SUCCESS;
 	uint32_t ecc_bits;
 
@@ -1169,6 +1223,19 @@ qpic_nand_onfi_save_params(struct mtd_info *mtd,
 		printf("Fetch ID cmd failed\n");
 		goto onfi_save_params_err;
 	}
+
+	if (param_page->rev & (1 << 5))
+		chip->onfi_version = 23;
+	else if (param_page->rev & (1 << 4))
+		chip->onfi_version = 22;
+	else if (param_page->rev & (1 << 3))
+		chip->onfi_version = 21;
+	else if (param_page->rev & (1 << 2))
+		chip->onfi_version = 20;
+	else if (param_page->rev & (1 << 1))
+		chip->onfi_version = 10;
+	memcpy(chip->onfi_params.model, param_page->device_model,
+		sizeof(chip->onfi_params.model));
 
 	dev->page_size = param_page->data_per_pg;
 	mtd->writesize = dev->page_size;
@@ -1471,6 +1538,7 @@ static int qpic_nand_read_id_serial(struct mtd_info *mtd)
 	uint32_t serial_dev_id[2] = {0x0};
 	int i;
 	int is_idfound;
+	struct nand_chip *chip = MTD_NAND_CHIP(mtd);
 	struct qpic_nand_dev *dev = MTD_QPIC_NAND_DEV(mtd);
 
 	nand_ret = qpic_nand_fetch_id(mtd);
@@ -1497,8 +1565,16 @@ static int qpic_nand_read_id_serial(struct mtd_info *mtd)
 				printf("Serial Nand Device Found With ID : 0x%02x 0x%02x\n",
 						serial_dev_id[0],serial_dev_id[1]);
 
+				chip->chip_name = serial_params->name;
+
 				/* Upadate device paramter as per device table */
 				qpic_serial_update_dev_params(mtd);
+
+				printf("%s page=%d+%d blk=%dpg total=%lldMiB\n",
+					serial_params->name, serial_params->page_size,
+					serial_params->spare_size,
+					serial_params->pgs_per_blk,
+					(long long)serial_params->density / 1024 / 1024);
 
 				return nand_ret;
 			}
@@ -1801,6 +1877,14 @@ qpic_nand_onfi_probe(struct mtd_info *mtd)
 	param_page = (struct onfi_param_page*)buffer;
 
 	/* TODO: Add CRC check to validate the param page. */
+
+	struct onfi_param_page *p = param_page;
+	int ml = 20; while (ml > 0 && p->device_model[ml-1] == ' ') ml--;
+	printf("%.*s page=%d+%d blk=%dpg %dLUNx%dblks total=%lldMiB\n",
+		ml, p->device_model, p->data_per_pg, p->spare_per_pg,
+		p->pgs_per_blk, p->num_LUN, p->blks_per_LUN,
+		(long long)p->data_per_pg * p->pgs_per_blk *
+			p->blks_per_LUN * p->num_LUN / 1024 / 1024);
 
 	/* Save the parameter values */
 	onfi_ret = qpic_nand_onfi_save_params(mtd, param_page);
@@ -2592,6 +2676,7 @@ static int qpic_nand_get_info(struct mtd_info *mtd, uint32_t flash_id)
 	uint8_t cfg_id;
 	const struct nand_manufacturers *flash_man;
 	const struct nand_flash_dev *flash_dev;
+	struct nand_chip *chip = MTD_NAND_CHIP(mtd);
 	struct qpic_nand_dev *dev = MTD_QPIC_NAND_DEV(mtd);
 	uint32_t min_oobsize_8bit_ecc;
 
@@ -2613,6 +2698,7 @@ static int qpic_nand_get_info(struct mtd_info *mtd, uint32_t flash_id)
 	}
 
 	mtd->size = MB_TO_BYTES(flash_dev->chipsize);
+	chip->chip_name = flash_dev->name;
 	/*
 	* For older NAND flash, we obtained the flash information
 	* from the flash_dev table. For newer flashes the information
@@ -2636,6 +2722,11 @@ static int qpic_nand_get_info(struct mtd_info *mtd, uint32_t flash_id)
 	dev->num_blocks /= (dev->block_size);
 	dev->num_pages_per_blk = dev->block_size / dev->page_size;
 	dev->num_pages_per_blk_mask = dev->num_pages_per_blk - 1;
+
+	printf("%s page=%d+%d blk=%dpg total=%lldMiB\n",
+		flash_dev->name, mtd->writesize, mtd->oobsize,
+		dev->num_pages_per_blk,
+		(long long)mtd->size / 1024 / 1024);
 
 	return 0;
 }
@@ -4836,6 +4927,10 @@ void qpic_nand_init(qpic_nand_cfg_t *qpic_nand_cfg)
 	}
 #endif
 	dev = MTD_QPIC_NAND_DEV(mtd);
+	chip->id_data[0] = dev->id;
+	chip->id_data[1] = dev->id >> 8;
+	chip->id_data[2] = dev->id >> 16;
+	chip->id_data[3] = dev->id >> 24;
 	qpic_nand_mtd_params(mtd);
 
 #ifdef CONFIG_PAGE_SCOPE_MULTI_PAGE_READ

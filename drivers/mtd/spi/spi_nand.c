@@ -1005,6 +1005,10 @@ int spi_nand_flash_probe(struct spi_slave *spi, struct spi_flash *flash,
 	}
 
 	flash->name = params->name;
+#ifdef CONFIG_LWIP_HTTPD
+	flash->jedec = (idcode[0] << 16) | (idcode[1] << 8) | idcode[2];
+	flash->ext_jedec = idcode[3];
+#endif
 	flash->page_size = params->page_size;
 	flash->sector_size = params->page_size;
 	flash->erase_size = params->erase_size;
@@ -1185,6 +1189,13 @@ int spi_nand_init(void)
 	info->mtd = mtd;
 	info->chip = chip;
 	chip->priv = info;
+	memcpy(chip->id_data, params->id, 4);
+	chip->chip_name = params->name;
+
+	printf("%s page=%d+%d blk=%dpg total=%lldMiB\n",
+		params->name, mtd->writesize, mtd->oobsize,
+		params->pages_per_sector,
+		(long long)mtd->size / 1024 / 1024);
 
 	if ((ret = nand_register(CONFIG_IPQ_SPI_NAND_INFO_IDX)) < 0) {
 		free(info);

@@ -74,11 +74,11 @@ U-Boot 恢复环境默认网络参数：
 | --- | ---: |
 | IPQ40xx | 5 |
 | IPQ5018 | 13 |
-| IPQ5332 | 9 |
+| IPQ5332 | 11 |
 | IPQ6018 | 14 |
 | IPQ806x | 2 |
 | IPQ807x | 5 |
-| IPQ9574 | 1 |
+| IPQ9574 | 2 |
 
 完整设备索引维护在 [docs/devices.csv](docs/devices.csv)，并渲染到 [docs/devices.md](docs/devices.md)。
 

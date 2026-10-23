@@ -65,6 +65,20 @@ config QCA8033_PHY
 config QCA8081_PHY
 	bool "Enable QCA8081 PHY support"
 
+config RTL8221_PHY
+	bool "Enable RTL8221 PHY support"
+
+config YT8821_PHY
+	bool "Enable YT8821 PHY support"
+
+config RTL8372N_SWITCH
+	bool "Enable RTL8372N Switch support"
+
+config RTL8372N_DEBUG
+	bool "Enable RTL8372N debug prints"
+	depends on RTL8372N_SWITCH
+	default n
+
 config DPR_EXECUTE
 	bool "Enable DPR support"
 
@@ -112,4 +126,16 @@ config IPQ5332_XIAOMI_BE6500
 	default n
 	help
 		Enable support for IPQ5332_XIAOMI_BE6500 support
+
+config IPQ5332_XIAOMI_BE3600_PRO_WIRED_5PORTS
+	bool "For IPQ5332_XIAOMI_BE3600_PRO_WIRED_5PORTS support"
+	default n
+	help
+		Enable support for IPQ5332_XIAOMI_BE3600_PRO_WIRED_5PORTS (RTL8372N + RTL8221) support
+
+config IPQ5332_XIAOMI_BE3600_PRO_WIRED_8PORTS
+	bool "For IPQ5332_XIAOMI_BE3600_PRO_WIRED_8PORTS support"
+	default n
+	help
+		Enable support for IPQ5332_XIAOMI_BE3600_PRO_WIRED_8PORTS (Dual RTL8372N) support
 endif

@@ -17,6 +17,9 @@
 #include <exports.h>
 #include <environment.h>
 #include <webterm.h>
+#ifdef CONFIG_LWIP_HTTPD
+#include "../failsafe/failsafe_httpd.h"
+#endif
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -499,7 +502,7 @@ void putc(const char c)
 		return;
 #endif
 
-#ifdef CONFIG_HTTPD
+#ifdef CONFIG_LWIP_HTTPD
 	webterm_putc(c);
 #endif
 
@@ -550,7 +553,7 @@ void puts(const char *s)
 		return;
 #endif
 
-#ifdef CONFIG_HTTPD
+#ifdef CONFIG_LWIP_HTTPD
 	webterm_capture_output(s);
 #endif
 
@@ -596,10 +599,36 @@ void console_record_reset_enable(void)
 /* test if ctrl-c was pressed */
 static int ctrlc_disabled = 0;	/* see disable_ctrl() */
 static int ctrlc_was_pressed = 0;
+
+#ifdef CONFIG_LWIP_HTTPD
+extern volatile int webterm_abort_requested;
+extern int webfailsafe_is_running;
+extern void sys_check_timeouts(void);
+#endif
+
 int ctrlc(void)
 {
 #ifndef CONFIG_SANDBOX
 	if (!ctrlc_disabled && gd->have_console) {
+#ifdef CONFIG_LWIP_HTTPD
+		if (webterm_abort_requested) {
+			webterm_abort_requested = 0;
+			ctrlc_was_pressed = 1;
+			return 1;
+		}
+
+		if (webfailsafe_is_running) {
+			if (eth_rx() > 0) {
+				sys_check_timeouts();
+			}
+			if (webterm_abort_requested) {
+				webterm_abort_requested = 0;
+				ctrlc_was_pressed = 1;
+				return 1;
+			}
+		}
+#endif
+
 		if (tstc()) {
 			switch (getc()) {
 			case 0x03:		/* ^C - Control C */

@@ -1,5 +1,21 @@
 #define RESET_BUTTON_PRESSED 0
 
+#ifdef CONFIG_IPQ6018
+#define GPIO_MAX 80
+#elif defined(CONFIG_IPQ40XX)
+#define GPIO_MAX 100
+#elif defined(CONFIG_IPQ807X)
+#define GPIO_MAX 70
+#elif defined(CONFIG_IPQ806X)
+#define GPIO_MAX 68
+#elif defined(CONFIG_IPQ5332)
+#define GPIO_MAX 53
+#elif defined(CONFIG_IPQ5018)
+#define GPIO_MAX 47
+#elif defined(CONFIG_IPQ9574)
+#define GPIO_MAX 65
+#endif
+
 #ifndef GPIO_PULL_UP
 #ifdef CONFIG_IPQ40XX
 #define GPIO_PULL_UP 2 /* IPQ40XX platform */
@@ -23,9 +39,6 @@
 #define GPIO_OE_ENABLE 1
 #endif
 
-#define LED_ON 1
-#define LED_OFF 0
-
 /* WebFailsafe progress status */
 #define WEBFAILSAFE_PROGRESS_START			0
 #define WEBFAILSAFE_PROGRESS_UPLOADING			1
@@ -44,6 +57,11 @@
 #define WEBFAILSAFE_UPGRADE_TYPE_PTABLE			6
 #define WEBFAILSAFE_UPGRADE_TYPE_INITRAMFS		7
 
+#define IMG_FLASH_NOR		1
+#define IMG_FLASH_NAND		2
+#define IMG_FLASH_EMMC		3
+#define IMG_FLASH_NAND_RAW	4
+
 /* firmware type */
 enum firmware_type_enum {
 	FW_TYPE_FIT		= 0,
@@ -53,6 +71,7 @@ enum firmware_type_enum {
 	FW_TYPE_CDT		= 4,
 	FW_TYPE_ELF		= 5,
 	FW_TYPE_MIBIB	= 6,
+	FW_TYPE_SYSUPGRADE	= 7,
 };
 
 /* flash type: use SMEM_BOOT_* enum from asm/arch-qca-common/smem.h */
@@ -112,7 +131,7 @@ enum firmware_type_enum {
 /* function declarations */
 struct fw_info {
     int type;
-    unsigned int hlos_size;  // HLOS actual size (bytes)
+    unsigned long hlos_size;
 };
 
 struct fw_info check_fw_type_ex(void *address);
@@ -120,37 +139,47 @@ int check_fw_type(void *address);
 void led_toggle(const char *gpio_name);
 void led_on(const char *gpio_name);
 void led_off(const char *gpio_name);
+void led_blink(const char *gpio_name, int duration);
 void led_init_by_name(const char *gpio_name);
 void led_init(void);
 void btn_init_by_name(const char *gpio_name);
 void btn_init(void);
 void btn_check_press(void);
-unsigned long get_nor_firmware_combined_size(void);
+int fdt_find_gpio_node(const char *gpio_name);
+int fdt_get_gpio_number(const char *gpio_name);
+int env_reset_gpio(void);
+void env_reset_gpio_invalidate(void);
+void fdt_list_gpio(const char *path, const char *parent,
+	void (*cb)(int gpio, const char *name, const char *dir, int value, const char *parent, void *ctx),
+	void *ctx);
+
+u64 get_nor_firmware_combined_size(void);
 /* main api for get smem table size*/
-unsigned long get_smem_table_size_bytes(const char *name);
-unsigned long get_smem_table_offset(const char *name);
+u64 get_smem_table_size_bytes(const char *name);
+u64 get_smem_table_offset(const char *name);
 
 /* api for webfailsafe upgrade size limit */
-unsigned long get_uboot_size(void);
-unsigned long get_art_size(void);
-unsigned long get_firmware_size(void);
-unsigned long get_firmware_upgrade_max_size(void);
-unsigned long get_cdt_size(void);
-unsigned long get_mibib_size(void);
-unsigned long get_hlos_offset(void);
-unsigned long get_hlos_1_offset(void);
-unsigned long get_rootfs_offset(void);
-unsigned long get_rootfs_1_offset(void);
-unsigned long get_hlos_size(void);
-unsigned long get_hlos_1_size(void);
-unsigned long get_rootfs_size(void);
-unsigned long get_rootfs_1_size(void);
-unsigned long get_bootconfig_size(void);
-unsigned long get_bootconfig_offset(void);
-unsigned long get_bootconfig1_offset(void);
-unsigned long get_bootconfig_offset_blocks(void);
-unsigned long get_bootconfig_size_blocks(void);
-unsigned long get_nor_firmware_combined_size(void);
+u64 get_uboot_size(void);
+u64 get_art_size(void);
+u64 get_firmware_size(void);
+u64 get_firmware_upgrade_max_size(void);
+u64 get_cdt_size(void);
+u64 get_mibib_size(void);
+u64 get_initramfs_max_size(void);
+u64 get_hlos_offset(void);
+u64 get_hlos_1_offset(void);
+u64 get_rootfs_offset(void);
+u64 get_rootfs_1_offset(void);
+u64 get_hlos_size(void);
+u64 get_hlos_1_size(void);
+u64 get_rootfs_size(void);
+u64 get_rootfs_1_size(void);
+u64 get_bootconfig_size(void);
+u64 get_bootconfig_offset(void);
+u64 get_bootconfig1_offset(void);
+u64 get_bootconfig_offset_blocks(void);
+u64 get_bootconfig_size_blocks(void);
+u64 get_nor_firmware_combined_size(void);
 
 /* eMMC partition boundary functions */
 unsigned long get_hlos_start_block(void);

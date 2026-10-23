@@ -316,7 +316,7 @@ extern loff_t board_env_size;
 #define CONFIG_IPQ807X_EDMA		1
 #define CONFIG_IPQ807X_BRIDGED_MODE	1
 #define CONFIG_NET_RETRY_COUNT		5
-#define CONFIG_SYS_RX_ETH_BUFFER	16
+#define CONFIG_SYS_RX_ETH_BUFFER	128
 #define CONFIG_CMD_PING
 #define CONFIG_CMD_DHCP
 #define CONFIG_MII
@@ -327,7 +327,7 @@ extern loff_t board_env_size;
 #define CONFIG_CMD_TFTPPUT
 #define CONFIG_IPQ_MDIO			1
 #define CONFIG_IPQ_ETH_INIT_DEFER
-#define CONFIG_HTTPD
+#define CONFIG_LWIP_HTTPD
 #define CONFIG_DHCPD
 #define CONFIG_CMD_DHCPD
 #define CONFIG_SYS_LONGHELP

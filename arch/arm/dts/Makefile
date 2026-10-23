@@ -138,6 +138,10 @@ else ifeq ($(CONFIG_IPQ5332_JDCLOUD_BE6500),y)
 dtb-$(CONFIG_ARCH_IPQ5332) += ipq5332-jdcloud-be6500.dtb
 else ifeq ($(CONFIG_IPQ5332_XIAOMI_BE6500),y)
 dtb-$(CONFIG_ARCH_IPQ5332) += ipq5332-xiaomi-be6500.dtb
+else ifeq ($(CONFIG_IPQ5332_XIAOMI_BE3600_PRO_WIRED_5PORTS),y)
+dtb-$(CONFIG_ARCH_IPQ5332) += ipq5332-xiaomi-be3600-pro-wired-5ports.dtb
+else ifeq ($(CONFIG_IPQ5332_XIAOMI_BE3600_PRO_WIRED_8PORTS),y)
+dtb-$(CONFIG_ARCH_IPQ5332) += ipq5332-xiaomi-be3600-pro-wired-8ports.dtb
 else
 ifneq ($(CONFIG_IPQ_TINY),y)
 dtb-$(CONFIG_ARCH_IPQ5332) += ipq5332-emulation.dtb \
@@ -205,6 +209,9 @@ dtb-$(CONFIG_ARCH_IPQ6018) += ipq6018-cp01-c1.dtb \
 			ipq6018-db-cp02.dtb
 endif
 
+ifeq ($(CONFIG_IPQ9574_XIAOMI_BE7000),y)
+dtb-$(CONFIG_ARCH_IPQ9574) += ipq9574-xiaomi-be7000.dtb
+else
 dtb-$(CONFIG_ARCH_IPQ9574) += ipq9574-al01-c1.dtb \
 			ipq9574-al02-c1.dtb \
 			ipq9574-al03-c1.dtb \
@@ -227,6 +234,7 @@ dtb-$(CONFIG_ARCH_IPQ9574) += ipq9574-al01-c1.dtb \
 			ipq9574-db-al02-c1.dtb \
 			ipq9574-db-al02-c2.dtb \
 			ipq9574-db-al02-c3.dtb
+endif
 
 dtb-$(CONFIG_ARCH_ROCKCHIP) += \
 	rk3288-firefly.dtb \
