@@ -138,6 +138,13 @@ jobs:
       - name: Prepare release assets
         run: python3 scripts/prepare_release_assets.py --artifacts-dir artifacts --output-dir release-assets --body release-notes.md
 
+      - name: Append validation scope
+        run: |
+          cat >> release-notes.md <<'EOF'
+
+          > Validation scope: this release was built and cross-checked by the 7-platform CI. Hardware runtime validation (boot / flash / recovery) was not performed for this release. The `Tested` column above comes from the project device metadata and is not a claim from this build.
+          EOF
+
       - name: Verify main still points at the built commit
         run: |
           MAIN_SHA=$(gh api repos/${{ github.repository }}/git/ref/heads/main --jq .object.sha)
