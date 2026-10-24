@@ -603,8 +603,14 @@ u64 get_firmware_upgrade_max_size(void) {
 	switch (flash_type) {
 #if defined(CONFIG_EFI_PARTITION) && defined(CONFIG_PARTITIONS) && defined(CONFIG_CMD_MMC)
 		case SMEM_BOOT_MMC_FLASH:
-		case SMEM_BOOT_NORPLUSEMMC:
-			return get_hlos_size() + get_rootfs_size();
+		case SMEM_BOOT_NORPLUSEMMC: {
+			u64 rootfs_size = get_rootfs_size();
+
+			/* Some GPTs name the rootfs rootfs_1. */
+			if (!rootfs_size)
+				rootfs_size = get_firmware_size();
+			return get_hlos_size() + rootfs_size;
+		}
 #endif
 		case SMEM_BOOT_NOR_FLASH:
 			return get_nor_firmware_combined_size();
@@ -655,6 +661,9 @@ u64 get_smem_table_offset(const char *name) {
 u64 get_nor_firmware_combined_size(void) {
 	u64 kernel_size = get_smem_table_size_bytes("0:HLOS");
 	u64 rootfs_size = get_smem_table_size_bytes("rootfs");
+
+	if (!rootfs_size)
+		rootfs_size = get_firmware_size();
 	return kernel_size + rootfs_size;
 }
 

@@ -1236,9 +1236,23 @@ static void httpd_handle_env_set(struct failsafe_httpd_state *hs, char *data, in
 						ok = 1;
 					}
 				} else if (strcmp(name, "config_name") == 0) {
-					setenv(name, value[0] ? value : NULL);
-					saveenv();
-					ok = 1;
+					int i, valid = 1;
+
+					/* This value is emitted verbatim in /about JSON. */
+					for (i = 0; value[i]; i++) {
+						if (value[i] == '"' || value[i] == '\\' ||
+						    (unsigned char)value[i] < 0x20) {
+							valid = 0;
+							break;
+						}
+					}
+					if (!valid) {
+						bad = 1;
+					} else {
+						setenv(name, value[0] ? value : NULL);
+						saveenv();
+						ok = 1;
+					}
 				}
 			}
 		} else {
@@ -1827,6 +1841,13 @@ static void backup_chunk_next(void) {
 		backup.chunk_busy = 0;
 		backup.chunked = 0;
 		backup.total_remaining = 0;
+		/*
+		 * The client already has the original Content-Length. Closing
+		 * now makes the short transfer fail immediately instead of
+		 * leaving the connection idle until the 5-minute poll timeout.
+		 */
+		if (hs_global)
+			httpd_close_conn(hs_global, hs_global->pcb);
 	}
 }
 
@@ -2253,6 +2274,9 @@ void failsafe_httpd_poll(void) {
 	if (webterm_run_pending_command()) {
 		if (!eth_is_active(eth_get_dev()))
 			eth_retry_timer = 0;
+		/* A web-terminal command may have stopped the server. */
+		if (!webfailsafe_is_running)
+			return;
 	}
 
 #if defined(CONFIG_IPQ5332) || defined(CONFIG_IPQ9574)

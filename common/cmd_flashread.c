@@ -390,7 +390,8 @@ static int nand_raw_chunk_read(u32 load_addr, u64 user_offset, u32 user_size, u3
 	u32 page_size, oob_size, total_pages, raw_page_size, start_page, pages_avail, read_bytes = 0, p;
 	u8 *buf;
 
-	if (nand_dev < 0 || nand_info[nand_dev].size == 0) {
+	if (nand_dev < 0 || nand_info[nand_dev].size == 0 ||
+	    nand_info[nand_dev].writesize == 0) {
 		printf("NAND flash not available\n");
 		return CMD_RET_FAILURE;
 	}

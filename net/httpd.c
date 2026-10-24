@@ -260,7 +260,7 @@ static int do_firmware_upgrade(const ulong size) {
 				u64 rootfs_size = get_rootfs_size();
 				u64 actual_rootfs_size;
 
-				/* Some NAND tables name the rootfs rootfs1/rootfs_1. */
+				/* Some partition tables name the rootfs rootfs1/rootfs_1. */
 				if (!rootfs_size)
 					rootfs_size = get_firmware_size();
 				if (hlos_size == 0 || rootfs_size == 0) {
