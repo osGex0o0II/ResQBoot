@@ -42,8 +42,7 @@ extern void emmc_cache_invalidate(void);
 #endif
 extern unsigned int get_spi_flash_size(void);
 extern struct spi_flash *spi_flash_ptr[MAX_SF_BUS_NUM][MAX_SF_CS_NUM];
-extern int flashread_partition(const char *part_name, ulong addr, ulong user_size, int raw, ulong *out_offset, ulong *out_size);
-extern int flashread_partition_chunk(const char *part_name, ulong addr, u64 user_offset, ulong user_size, int raw, ulong *out_offset, ulong *out_size, char *out_detail);
+extern int flashread_partition_chunk(const char *part_name, ulong addr, u64 user_offset, ulong user_size, int raw, int flash_type, ulong *out_offset, ulong *out_size, char *out_detail);
 extern void (*flashread_yield_fn)(void);
 #ifdef CONFIG_DHCPD
 #include "../net/dhcpd.h"
@@ -116,6 +115,7 @@ static struct {
 	int chunk_num;
 	int total_chunks;
 	int raw;
+	int flash_type;
 	char part_name[64];
 } backup;
 
@@ -805,6 +805,48 @@ static void about_gpio_cb(int gpio, const char *name, const char *dir, int value
 	*c->first = 0;
 }
 
+static int json_escape(char *dst, size_t dstsz, const char *src, size_t maxlen)
+{
+	size_t o = 0;
+
+	if (!dst || dstsz == 0)
+		return -1;
+
+	while (src && *src && maxlen) {
+		unsigned char c = (unsigned char)*src++;
+		char tmp[8];
+		const char *rep = tmp;
+		size_t l;
+
+		maxlen--;
+		if (c == '"' || c == '\\') {
+			tmp[0] = '\\';
+			tmp[1] = c;
+			tmp[2] = '\0';
+		} else if (c == '\n') {
+			strcpy(tmp, "\\n");
+		} else if (c == '\r') {
+			strcpy(tmp, "\\r");
+		} else if (c == '\t') {
+			strcpy(tmp, "\\t");
+		} else if (c < 0x20) {
+			snprintf(tmp, sizeof(tmp), "\\u%04x", (unsigned int)c);
+		} else {
+			tmp[0] = c;
+			tmp[1] = '\0';
+		}
+		l = strlen(rep);
+		if (o + l >= dstsz) {
+			dst[o] = '\0';
+			return -1;
+		}
+		memcpy(dst + o, rep, l);
+		o += l;
+	}
+	dst[o] = '\0';
+	return (int)o;
+}
+
 static void httpd_handle_about(struct failsafe_httpd_state *hs) {
 	int pos = 0, hdr_len;
 	char hdr[128];
@@ -814,10 +856,15 @@ static void httpd_handle_about(struct failsafe_httpd_state *hs) {
 
 	{
 		const char *fdt_model = fdt_getprop(gd->fdt_blob, 0, "model", NULL);
+		char model_esc[384];
+
+		if (json_escape(model_esc, sizeof(model_esc),
+				fdt_model ? fdt_model : "", 128) < 0)
+			model_esc[0] = '\0';
 #ifdef CONFIG_BOARD_DISPLAY_NAME
-		pos += sprintf(about_json_buf + pos, "\"model\":\"%s%s%.128s%s\",", CONFIG_BOARD_DISPLAY_NAME, fdt_model ? " (" : "", fdt_model ? fdt_model : "", fdt_model ? ")" : "");
+		pos += sprintf(about_json_buf + pos, "\"model\":\"%s%s%s%s\",", CONFIG_BOARD_DISPLAY_NAME, fdt_model ? " (" : "", model_esc, fdt_model ? ")" : "");
 #else
-		pos += sprintf(about_json_buf + pos, "\"model\":\"%.128s\",", fdt_model ? fdt_model : "");
+		pos += sprintf(about_json_buf + pos, "\"model\":\"%s\",", model_esc);
 #endif
 	}
 
@@ -825,7 +872,11 @@ static void httpd_handle_about(struct failsafe_httpd_state *hs) {
 		const char *cn = fdt_getprop(gd->fdt_blob, 0, "config_name", NULL);
 		const char *cn_env = getenv("config_name");
 		if (cn_env) {
-			pos += sprintf(about_json_buf + pos, "\"config_name\":\"%.128s\"," "\"config_name_source\":\"env\",", cn_env);
+			char cn_esc[384];
+
+			if (json_escape(cn_esc, sizeof(cn_esc), cn_env, 128) < 0)
+				cn_esc[0] = '\0';
+			pos += sprintf(about_json_buf + pos, "\"config_name\":\"%s\"," "\"config_name_source\":\"env\",", cn_esc);
 		} else if (cn) {
 			int cnt = fdt_count_strings(gd->fdt_blob, 0, "config_name");
 			pos += sprintf(about_json_buf + pos, "\"config_name\":\"");
@@ -833,8 +884,12 @@ static void httpd_handle_about(struct failsafe_httpd_state *hs) {
 			for (int i = 0; i < cnt && i < 8; i++) {
 				const char *s;
 				if (fdt_get_string_index(gd->fdt_blob, 0, "config_name", i, &s) == 0 && s && strchr(s, '@')) {
+					char s_esc[192];
+
+					if (json_escape(s_esc, sizeof(s_esc), s, 64) < 0)
+						continue;
 					if (!first) pos += sprintf(about_json_buf + pos, ", ");
-					pos += sprintf(about_json_buf + pos, "%.64s", s);
+					pos += sprintf(about_json_buf + pos, "%s", s_esc);
 					first = 0;
 				}
 			}
@@ -1490,23 +1545,28 @@ static void httpd_handle_partitions(struct failsafe_httpd_state *hs) {
 	httpd_send_data(hs);
 }
 
-static u64 backup_flash_capacity(const char *part_name, int raw)
+static u64 backup_flash_capacity(const char *part_name, int raw, int flash_type_override)
 {
 	u64 capacity = 0;
 	uint32_t flash_type;
 
-	if (get_current_flash_type(&flash_type) != 0)
-		return 0;
+	if (get_current_flash_type(&flash_type) != 0) {
+		if (flash_type_override == -1)
+			return 0;
+		flash_type = flash_type_override;
+	}
 
 	if (!strcmp(part_name, "nor_full"))
 		return get_spi_flash_size();
 
 #ifdef CONFIG_CMD_NAND
 	if (!strcmp(part_name, "nand_full") ||
-	    flash_type == SMEM_BOOT_NAND_FLASH ||
-	    flash_type == SMEM_BOOT_QSPI_NAND_FLASH ||
-	    flash_type == SMEM_BOOT_NORPLUSNAND ||
-	    get_which_flash_param((char *)part_name) > 0) {
+	    flash_type_override == SMEM_BOOT_NAND_FLASH ||
+	    (flash_type_override == -1 &&
+	     (flash_type == SMEM_BOOT_NAND_FLASH ||
+	      flash_type == SMEM_BOOT_QSPI_NAND_FLASH ||
+	      flash_type == SMEM_BOOT_NORPLUSNAND ||
+	      get_which_flash_param((char *)part_name) > 0))) {
 #ifdef CONFIG_IPQ40XX
 		int nd = is_spi_nand_available();
 #else
@@ -1537,9 +1597,11 @@ static u64 backup_flash_capacity(const char *part_name, int raw)
 #endif
 
 #ifdef CONFIG_QCA_MMC
-	if (flash_type == SMEM_BOOT_MMC_FLASH ||
-	    flash_type == SMEM_BOOT_NO_FLASH ||
-	    flash_type == SMEM_BOOT_NORPLUSEMMC) {
+	if (flash_type_override == SMEM_BOOT_MMC_FLASH ||
+	    (flash_type_override == -1 &&
+	     (flash_type == SMEM_BOOT_MMC_FLASH ||
+	      flash_type == SMEM_BOOT_NO_FLASH ||
+	      flash_type == SMEM_BOOT_NORPLUSEMMC))) {
 		block_dev_desc_t *blk_dev = mmc_get_dev(mmc_host.dev_num);
 
 		if (blk_dev) {
@@ -1552,6 +1614,8 @@ static u64 backup_flash_capacity(const char *part_name, int raw)
 			if (get_partition_info_efi_by_name(blk_dev, (char *)part_name,
 							   &disk_info) == 0)
 				return (u64)disk_info.size * blk_dev->blksz;
+			if (flash_type_override == SMEM_BOOT_MMC_FLASH)
+				return 0;
 			if (flash_type == SMEM_BOOT_NORPLUSEMMC) {
 				u32 offset, part_size;
 
@@ -1566,11 +1630,14 @@ static u64 backup_flash_capacity(const char *part_name, int raw)
 	}
 #endif
 
-	if (flash_type == SMEM_BOOT_SPI_FLASH ||
-	    flash_type == SMEM_BOOT_NORPLUSNAND ||
-	    flash_type == SMEM_BOOT_NORPLUSEMMC) {
+	if (flash_type_override == SMEM_BOOT_SPI_FLASH ||
+	    (flash_type_override == -1 &&
+	     (flash_type == SMEM_BOOT_SPI_FLASH ||
+	      flash_type == SMEM_BOOT_NORPLUSNAND ||
+	      flash_type == SMEM_BOOT_NORPLUSEMMC))) {
 #ifdef CONFIG_CMD_NAND
-		if (get_which_flash_param((char *)part_name) > 0) {
+		if (flash_type_override == -1 &&
+		    get_which_flash_param((char *)part_name) > 0) {
 			u32 offset, part_size;
 
 			if (getpart_offset_size((char *)part_name, &offset, &part_size) == 0 &&
@@ -1578,6 +1645,13 @@ static u64 backup_flash_capacity(const char *part_name, int raw)
 				return part_size;
 		}
 #endif
+		if (flash_type_override == SMEM_BOOT_SPI_FLASH) {
+			u32 offset, part_size;
+
+			if (getpart_offset_size((char *)part_name, &offset, &part_size) == 0 &&
+			    part_size)
+				return part_size;
+		}
 		return get_spi_flash_size();
 	}
 
@@ -1586,8 +1660,8 @@ static u64 backup_flash_capacity(const char *part_name, int raw)
 
 static void httpd_handle_backup(struct failsafe_httpd_state *hs, char *data, int data_len) {
 	char *query = strchr(&data[4], '?'), part_name[64], filename[96], *size_param, *amp;
-	ulong offset, size;
-	int hdr_len, raw = 0;
+	ulong size;
+	int hdr_len, raw = 0, flash_type_override = -1;
 	u32_t ram_avail;
 	u64 total_size = 0;
 
@@ -1615,6 +1689,21 @@ static void httpd_handle_backup(struct failsafe_httpd_state *hs, char *data, int
 	if (strstr(query, "raw=1"))
 		raw = 1;
 
+	{
+		char *flash_param = strstr(query, "flash=");
+
+		if (flash_param) {
+			char *fp = flash_param + 6;
+
+			if (!strncmp(fp, "emmc", 4))
+				flash_type_override = SMEM_BOOT_MMC_FLASH;
+			else if (!strncmp(fp, "nand", 4))
+				flash_type_override = SMEM_BOOT_NAND_FLASH;
+			else if (!strncmp(fp, "nor", 3))
+				flash_type_override = SMEM_BOOT_SPI_FLASH;
+		}
+	}
+
 	size_param = strstr(query, "size=");
 	if (size_param)
 		total_size = simple_strtoull(size_param + 5, NULL, 10);
@@ -1631,7 +1720,7 @@ static void httpd_handle_backup(struct failsafe_httpd_state *hs, char *data, int
 	}
 
 	{
-		u64 capacity = backup_flash_capacity(part_name, raw);
+		u64 capacity = backup_flash_capacity(part_name, raw, flash_type_override);
 
 		if (capacity && total_size > capacity) {
 			printf("Backup: requested %llu exceeds capacity %llu, capped\n",
@@ -1641,52 +1730,57 @@ static void httpd_handle_backup(struct failsafe_httpd_state *hs, char *data, int
 	}
 
 	ram_avail = (u32_t)CONFIG_SYS_SDRAM_END - (u32_t)WEBFAILSAFE_UPLOAD_RAM_ADDRESS;
-	backup.chunked = (total_size > ram_avail) ? 1 : 0;
 	backup.raw = raw;
+	backup.flash_type = flash_type_override;
 	backup.total_size = total_size;
 	strncpy(backup.part_name, part_name, sizeof(backup.part_name) - 1);
 	backup.part_name[sizeof(backup.part_name) - 1] = '\0';
 	flashread_yield_fn = flashread_yield;
 
-	if (backup.chunked) {
-		backup.total_chunks = (int)((total_size + ram_avail - 1) / ram_avail);
-		backup.chunk_num = 1;
-		printf("Backup: %llu.%02llu MiB > RAM %u.%02u MiB %d chunks transfer\n", mib_int(total_size), mib_frac(total_size),
-			(u32)mib_int(ram_avail), (u32)mib_frac(ram_avail), backup.total_chunks);
-		char chunk_detail[32] = "";
-		if (flashread_partition_chunk(part_name, WEBFAILSAFE_UPLOAD_RAM_ADDRESS, 0, ram_avail, raw, NULL, &size, chunk_detail) != CMD_RET_SUCCESS) {
-			static const char *err = "HTTP/1.0 500 Internal Server Error\r\nConnection: close\r\n\r\nRead failed";
-			httpd_send_static(hs, err, strlen(err));
-			return;
-		}
-		backup.data_addr = (u32_t)WEBFAILSAFE_UPLOAD_RAM_ADDRESS;
-		backup.data_size = (u32_t)size;
-		backup.chunk_offset = (u64)size;
-		backup.total_sent = (u64)size;
-		backup.total_remaining = backup.total_size - backup.total_sent;
-		printf("Backup: %d/%d %llu.%02llu/%llu.%02llu MiB\n", backup.chunk_num, backup.total_chunks, mib_int(backup.total_sent), mib_frac(backup.total_sent),  mib_int(backup.total_size), mib_frac(backup.total_size));
-		backup.chunk_num++;
-	} else {
-		u32 requested = (total_size > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : (u32)total_size;
+	{
+		u32 first_size = (total_size > ram_avail) ? ram_avail : (u32)total_size;
+		char chunk_detail[64] = "";
 
-		/*
-		 * Never let the query string select an unbounded read: user_size
-		 * caps flashread_partition() to the amount that fits in RAM.
-		 */
-		if (flashread_partition(part_name, WEBFAILSAFE_UPLOAD_RAM_ADDRESS,
-					requested, raw, &offset, &size) != CMD_RET_SUCCESS ||
+		if (flashread_partition_chunk(part_name, WEBFAILSAFE_UPLOAD_RAM_ADDRESS, 0,
+					      first_size, raw, flash_type_override,
+					      NULL, &size, chunk_detail) != CMD_RET_SUCCESS ||
 		    size == 0) {
-			static const char *err = "HTTP/1.0 500 Internal Server Error\r\nConnection: close\r\n\r\nRead failed";
-			httpd_send_static(hs, err, strlen(err));
+			snprintf(part_json_buf, sizeof(part_json_buf),
+				 "HTTP/1.0 500 Internal Server Error\r\nConnection: close\r\n\r\nRead failed%s%s",
+				 chunk_detail[0] ? ": " : "", chunk_detail);
+			httpd_send_static(hs, part_json_buf, strlen(part_json_buf));
 			return;
 		}
-		total_size = size;
-		backup.total_size = total_size;
+		if (size > total_size)
+			size = total_size;
+
 		backup.data_addr = (u32_t)WEBFAILSAFE_UPLOAD_RAM_ADDRESS;
 		backup.data_size = (u32_t)size;
-		backup.total_remaining = 0;
-		backup.total_sent = 0;
-		backup.chunk_offset = 0;
+
+		if (total_size > ram_avail) {
+			backup.chunked = 1;
+			backup.total_chunks = (int)((total_size + ram_avail - 1) / ram_avail);
+			backup.chunk_num = 1;
+			backup.chunk_offset = (u64)size;
+			backup.total_sent = (u64)size;
+			backup.total_remaining = total_size - (u64)size;
+			printf("Backup: %llu.%02llu MiB > RAM %u.%02u MiB %d chunks transfer\n",
+				mib_int(total_size), mib_frac(total_size),
+				(u32)mib_int(ram_avail), (u32)mib_frac(ram_avail),
+				backup.total_chunks);
+			printf("Backup: %d/%d %llu.%02llu/%llu.%02llu MiB\n",
+				backup.chunk_num, backup.total_chunks,
+				mib_int(backup.total_sent), mib_frac(backup.total_sent),
+				mib_int(backup.total_size), mib_frac(backup.total_size));
+			backup.chunk_num++;
+		} else {
+			total_size = size;
+			backup.total_size = total_size;
+			backup.chunked = 0;
+			backup.total_remaining = 0;
+			backup.total_sent = 0;
+			backup.chunk_offset = 0;
+		}
 	}
 
 	/* Do not re-enter lwIP from this tcp_recv callback. */
@@ -1810,9 +1904,9 @@ static void backup_chunk_next(void) {
 	u32_t ram_avail = (u32_t)CONFIG_SYS_SDRAM_END - (u32_t)WEBFAILSAFE_UPLOAD_RAM_ADDRESS,
 		  chunk_size = (backup.total_remaining > ram_avail) ? ram_avail : (u32)backup.total_remaining;
 	ulong rd_size;
-	char chunk_detail[32] = "";
+	char chunk_detail[64] = "";
 
-	if (flashread_partition_chunk(backup.part_name, WEBFAILSAFE_UPLOAD_RAM_ADDRESS, backup.chunk_offset, chunk_size, backup.raw, NULL, &rd_size, chunk_detail) == CMD_RET_SUCCESS && rd_size > 0) {
+	if (flashread_partition_chunk(backup.part_name, WEBFAILSAFE_UPLOAD_RAM_ADDRESS, backup.chunk_offset, chunk_size, backup.raw, backup.flash_type, NULL, &rd_size, chunk_detail) == CMD_RET_SUCCESS && rd_size > 0) {
 		backup.data_addr = (u32_t)WEBFAILSAFE_UPLOAD_RAM_ADDRESS;
 		backup.data_size = (u32_t)rd_size;
 		backup.chunk_offset += backup.data_size;
@@ -1836,8 +1930,9 @@ static void backup_chunk_next(void) {
 			backup.chunk_busy = 0;
 		}
 	} else {
-		printf("Backup: chunk failed at offset %llu.%02llu MiB\n",
-			mib_int(backup.chunk_offset), mib_frac(backup.chunk_offset));
+		printf("Backup: chunk failed at offset %llu.%02llu MiB%s%s\n",
+			mib_int(backup.chunk_offset), mib_frac(backup.chunk_offset),
+			chunk_detail[0] ? ": " : "", chunk_detail);
 		backup.chunk_busy = 0;
 		backup.chunked = 0;
 		backup.total_remaining = 0;

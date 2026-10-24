@@ -59,7 +59,7 @@ extern u32 flash_type_new;
 extern unsigned int get_spi_flash_size(void);
 
 int flashread_partition(const char *part_name, u32 load_addr, u32 user_size, int raw, u32 *out_offset, u32 *out_size);
-int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_offset, u32 user_size, int raw, u32 *out_offset, u32 *out_size, char *out_detail);
+int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_offset, u32 user_size, int raw, int flash_type_override, u32 *out_offset, u32 *out_size, char *out_detail);
 
 void (*flashread_yield_fn)(void);
 
@@ -266,7 +266,9 @@ int flashread_partition(const char *part_name, u32 load_addr, u32 user_size, int
 			if (ret)
 				goto exit;
 
-		} else if (((sfi->flash_secondary_type == SMEM_BOOT_NAND_FLASH) || (sfi->flash_secondary_type == SMEM_BOOT_QSPI_NAND_FLASH)) && (strncmp(part_name, "rootfs", 6) == 0)) {
+		} else if (((sfi->flash_secondary_type == SMEM_BOOT_NAND_FLASH) ||
+			    (sfi->flash_secondary_type == SMEM_BOOT_QSPI_NAND_FLASH)) &&
+			   (strncmp(part_name, "rootfs", 6) == 0)) {
 
 			flash_type = sfi->flash_secondary_type;
 
@@ -471,6 +473,12 @@ static int emmc_chunk_read(const char *part_name, u32 load_addr, u64 user_offset
 	if (strcmp(part_name, emmc_cached_part_name) == 0 && emmc_cached_part_size > 0) {
 		base_offset = emmc_cached_base_offset;
 		part_total_size = emmc_cached_part_size;
+	} else if (!strcmp(part_name, "0:GPT")) {
+		base_offset = 0;
+		part_total_size = (u64)GPT_PRIMARY_SIZE * (u64)blk_dev->blksz;
+	} else if (!strcmp(part_name, "0:GPTBACKUP")) {
+		base_offset = (u64)(blk_dev->lba - GPT_BACKUP_SIZE) * (u64)blk_dev->blksz;
+		part_total_size = (u64)GPT_BACKUP_SIZE * (u64)blk_dev->blksz;
 	} else {
 		gpt_count = get_partition_count_efi(blk_dev);
 		for (i = 1; i <= gpt_count; i++) {
@@ -480,12 +488,13 @@ static int emmc_chunk_read(const char *part_name, u32 load_addr, u64 user_offset
 				break;
 			}
 		}
-		if (part_total_size == 0)
-			return CMD_RET_FAILURE;
-		emmc_cached_base_offset = base_offset;
-		emmc_cached_part_size = part_total_size;
-		strncpy(emmc_cached_part_name, part_name, sizeof(emmc_cached_part_name) - 1);
 	}
+	if (part_total_size == 0)
+		return CMD_RET_FAILURE;
+	emmc_cached_base_offset = base_offset;
+	emmc_cached_part_size = part_total_size;
+	strncpy(emmc_cached_part_name, part_name, sizeof(emmc_cached_part_name) - 1);
+	emmc_cached_part_name[sizeof(emmc_cached_part_name) - 1] = '\0';
 	if (user_offset >= part_total_size) {
 		if (out_offset) *out_offset = (u32)user_offset;
 		if (out_size) *out_size = 0;
@@ -510,13 +519,26 @@ static int emmc_chunk_read(const char *part_name, u32 load_addr, u64 user_offset
 
 static int sf_chunk_read(const char *part_name, u32 load_addr, u64 user_offset, u32 user_size, int raw, u32 *out_offset, u32 *out_size, char *out_detail) {
 	u32 base_offset32 = 0, part_total_size32 = 0, chunk_size_bytes, chunk;
-	u64 base_offset, part_total_size, chunk_offset, remain;
+	u64 base_offset = 0, part_total_size = 0, chunk_offset, remain;
 	char runcmd[256];
 
-	if (flashread_partition(part_name, load_addr, 0, raw, &base_offset32, &part_total_size32) != CMD_RET_SUCCESS)
-		return CMD_RET_FAILURE;
-	base_offset = base_offset32;
-	part_total_size = part_total_size32;
+	(void)raw;
+
+	/*
+	 * Resolve the partition offset/size without calling
+	 * flashread_partition(), which would read the whole partition into RAM
+	 * before the chunk read (and overflow for partitions larger than RAM).
+	 */
+	if (!strcmp(part_name, "nor_full")) {
+		part_total_size = get_spi_flash_size();
+	} else {
+		if (getpart_offset_size((char *)part_name, &base_offset32,
+					&part_total_size32) != 0 ||
+		    !part_total_size32)
+			return CMD_RET_FAILURE;
+		base_offset = base_offset32;
+		part_total_size = part_total_size32;
+	}
 	if (user_offset >= part_total_size) {
 		if (out_offset) *out_offset = (u32)user_offset;
 		if (out_size) *out_size = 0;
@@ -535,9 +557,10 @@ static int sf_chunk_read(const char *part_name, u32 load_addr, u64 user_offset, 
 	return CMD_RET_SUCCESS;
 }
 
-int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_offset, u32 user_size, int raw, u32 *out_offset, u32 *out_size, char *out_detail) {
+int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_offset, u32 user_size, int raw, int flash_type_override, u32 *out_offset, u32 *out_size, char *out_detail) {
 	qca_smem_flash_info_t *sfi = &qca_smem_flash_info;
-	int flash_type = (flash_type_new != -1) ? flash_type_new : sfi->flash_type;
+	int flash_type = (flash_type_override != -1) ? flash_type_override :
+		((flash_type_new != -1) ? flash_type_new : sfi->flash_type);
 #ifdef CONFIG_CMD_NAND
 	int nand_dev, nand_ret;
 	struct mtd_info *mtd;
@@ -547,10 +570,32 @@ int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_off
 	u_char *p_buf;
 #endif
 
+	/*
+	 * An explicit flash type must not read a partition of another type at
+	 * the same name/offset. The UI sends this from /partitions, but keep
+	 * the backend strict for malformed requests too.
+	 */
+#ifdef CONFIG_CMD_NAND
+	if (flash_type_override == SMEM_BOOT_SPI_FLASH &&
+	    get_which_flash_param((char *)part_name) > 0) {
+		if (out_detail)
+			snprintf(out_detail, 32, "flash type mismatch");
+		return CMD_RET_FAILURE;
+	}
+	if (flash_type_override == SMEM_BOOT_NAND_FLASH &&
+	    sfi->flash_type == SMEM_BOOT_SPI_FLASH &&
+	    strcmp(part_name, "nand_full") != 0 &&
+	    get_which_flash_param((char *)part_name) == 0) {
+		if (out_detail)
+			snprintf(out_detail, 32, "flash type mismatch");
+		return CMD_RET_FAILURE;
+	}
+#endif
+
 #ifdef CONFIG_CMD_NAND
 	if (!strcmp(part_name, "nand_full") || flash_type == SMEM_BOOT_NAND_FLASH ||
 	    flash_type == SMEM_BOOT_QSPI_NAND_FLASH ||
-	    get_which_flash_param((char *)part_name) > 0) {
+	    (flash_type_override == -1 && get_which_flash_param((char *)part_name) > 0)) {
 		u64 part_base = 0, part_total;
 
 		if (!strcmp(part_name, "nand_full") && raw)
@@ -565,8 +610,11 @@ int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_off
 		nand_dev = CONFIG_NAND_FLASH_INFO_IDX;
 #endif
 		if (nand_dev < 0 || !nand_info[nand_dev].size ||
-		    !nand_info[nand_dev].writesize || !nand_info[nand_dev].erasesize)
+		    !nand_info[nand_dev].writesize || !nand_info[nand_dev].erasesize) {
+			if (out_detail)
+				snprintf(out_detail, 32, "nand unavailable");
 			return CMD_RET_FAILURE;
+		}
 
 		mtd = &nand_info[nand_dev];
 		part_total = mtd->size;
@@ -613,6 +661,10 @@ int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_off
 				if (isbad < 0) {
 					printf("nand bad-block query failed at 0x%llx: %d\n",
 					       cur_offset, isbad);
+					if (out_detail)
+						snprintf(out_detail, 32,
+							 "bad-block query 0x%llx",
+							 (unsigned long long)(cur_offset & ~(erasesize - 1)));
 					return CMD_RET_FAILURE;
 				}
 				if (isbad) {
@@ -625,6 +677,10 @@ int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_off
 					 */
 					printf("nand bad block at 0x%llx, chunk backup refused\n",
 					       cur_offset & ~(erasesize - 1));
+					if (out_detail)
+						snprintf(out_detail, 32,
+							 "bad block 0x%llx",
+							 (unsigned long long)(cur_offset & ~(erasesize - 1)));
 					return CMD_RET_FAILURE;
 				}
 			}
@@ -636,6 +692,9 @@ int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_off
 			nand_ret = nand_read(mtd, cur_offset, &read_length, p_buf);
 			if (nand_ret < 0 && nand_ret != -EUCLEAN) {
 				printf("nand read error at 0x%llx: %d\n", cur_offset, nand_ret);
+				if (out_detail)
+					snprintf(out_detail, 32, "read error 0x%llx",
+						 (unsigned long long)cur_offset);
 				return CMD_RET_FAILURE;
 			}
 
@@ -658,12 +717,17 @@ int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_off
 #endif
 	if (flash_type == SMEM_BOOT_SPI_FLASH) {
 #ifdef CONFIG_CMD_NAND
-		if (get_which_flash_param((char *)part_name) > 0 || ((sfi->flash_secondary_type == SMEM_BOOT_NAND_FLASH || sfi->flash_secondary_type == SMEM_BOOT_QSPI_NAND_FLASH) && !strncmp(part_name, "rootfs", 6)))
+		if (flash_type_override == -1 &&
+		    (get_which_flash_param((char *)part_name) > 0 ||
+		     ((sfi->flash_secondary_type == SMEM_BOOT_NAND_FLASH ||
+		       sfi->flash_secondary_type == SMEM_BOOT_QSPI_NAND_FLASH) &&
+		      !strncmp(part_name, "rootfs", 6))))
 			return nand_raw_chunk_read(load_addr, user_offset, user_size, out_offset, out_size, out_detail);
 #endif
 #ifdef CONFIG_QCA_MMC
-		if (sfi->flash_secondary_type == SMEM_BOOT_MMC_FLASH ||
-		    sfi->rootfs.offset == 0xBAD0FF5E) {
+		if (flash_type_override == -1 &&
+		    (sfi->flash_secondary_type == SMEM_BOOT_MMC_FLASH ||
+		     sfi->rootfs.offset == 0xBAD0FF5E)) {
 			u32 start_block = 0, size_block = 0;
 
 			/*

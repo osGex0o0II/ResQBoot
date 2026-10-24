@@ -103,6 +103,7 @@ jobs:
       contents: write
     env:
       TZ: Asia/Shanghai
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout code
@@ -144,36 +145,72 @@ jobs:
             echo "main moved to $MAIN_SHA; refusing to publish build ${{ github.sha }}"
             exit 1
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Delete existing release for current tag
+      - name: Create draft release and upload assets
+        run: |
+          DRAFT_TAG="v${{ env.TODAY }}-draft-${{ github.run_id }}"
+          EXPECTED=$(find release-assets -maxdepth 1 -type f | wc -l)
+          echo "DRAFT_TAG=$DRAFT_TAG" >> $GITHUB_ENV
+          echo "EXPECTED_ASSETS=$EXPECTED" >> $GITHUB_ENV
+          echo "Preparing $EXPECTED assets in draft $DRAFT_TAG"
+
+          if gh release view "$DRAFT_TAG" >/dev/null 2>&1; then
+            gh release delete "$DRAFT_TAG" --yes
+          fi
+
+          DRAFT_ID=$(gh api -X POST repos/${{ github.repository }}/releases \
+            -f tag_name="$DRAFT_TAG" \
+            -f target_commitish="${{ github.sha }}" \
+            -f name="v${{ env.TODAY }}" \
+            -F body=@release-notes.md \
+            -F draft=true \
+            --jq .id)
+          echo "Draft release id: $DRAFT_ID"
+
+          gh release upload "$DRAFT_TAG" release-assets/* --clobber
+
+          COUNT=$(gh release view "$DRAFT_TAG" --json assets --jq '.assets | length')
+          if [ "$COUNT" -ne "$EXPECTED" ]; then
+            echo "draft has $COUNT assets, expected $EXPECTED"
+            exit 1
+          fi
+
+          LOCAL=$(stat -c%s release-assets/IPQ40xx-Aliyun-AP4220.elf)
+          REMOTE=$(gh release view "$DRAFT_TAG" --json assets \
+            --jq '.assets[] | select(.name=="IPQ40xx-Aliyun-AP4220.elf") | .size')
+          if [ "$LOCAL" != "$REMOTE" ]; then
+            echo "sample asset size mismatch: local=$LOCAL remote=$REMOTE"
+            exit 1
+          fi
+
+      - name: Replace published release with the verified draft
         run: |
           TARGET_TAG="v${{ env.TODAY }}"
-          echo "Check Release tag: $TARGET_TAG"
-          echo "Current time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          MAIN_SHA=$(gh api repos/${{ github.repository }}/git/ref/heads/main --jq .object.sha)
+          if [ "$MAIN_SHA" != "${{ github.sha }}" ]; then
+            echo "main moved to $MAIN_SHA; refusing to publish draft $DRAFT_TAG"
+            exit 1
+          fi
 
           if gh release view "$TARGET_TAG" >/dev/null 2>&1; then
-            echo "Found existing Release $TARGET_TAG, deleting it before publishing fresh assets..."
-            gh release delete "$TARGET_TAG" --yes --cleanup-tag
-            echo "Release $TARGET_TAG deleted."
-          else
-            echo "Release $TARGET_TAG does not exist."
+            echo "Replacing existing release $TARGET_TAG"
+            gh release delete "$TARGET_TAG" --yes
+            gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/$TARGET_TAG" 2>/dev/null || true
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create new GitHub Release
-        uses: softprops/action-gh-release@v3.0.1
-        with:
-          tag_name: v${{ env.TODAY }}
-          name: v${{ env.TODAY }}
-          target_commitish: ${{ github.sha }}
-          body_path: release-notes.md
-          files: release-assets/*
-          fail_on_unmatched_files: true
-          overwrite_files: true
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          gh release edit "$DRAFT_TAG" --tag "$TARGET_TAG" \
+            --target "${{ github.sha }}" --draft=false
+
+          TAG_SHA=$(gh api repos/${{ github.repository }}/git/ref/tags/$TARGET_TAG --jq .object.sha)
+          if [ "$TAG_SHA" != "${{ github.sha }}" ]; then
+            echo "tag $TARGET_TAG points at $TAG_SHA, expected ${{ github.sha }}"
+            exit 1
+          fi
+
+          COUNT=$(gh release view "$TARGET_TAG" --json assets --jq '.assets | length')
+          if [ "$COUNT" -ne "$EXPECTED_ASSETS" ]; then
+            echo "published release has $COUNT assets, expected $EXPECTED_ASSETS"
+            exit 1
+          fi
+
+          echo "Published $TARGET_TAG at ${{ github.sha }} with $COUNT assets"

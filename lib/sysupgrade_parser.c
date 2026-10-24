@@ -6,6 +6,9 @@
 #ifdef CONFIG_CMD_NAND
 #include <nand.h>
 #endif
+#ifdef CONFIG_CMD_UBI
+extern int ubi_volume_can_replace(const char *name, size_t size);
+#endif
 #ifdef CONFIG_IPQ40XX
 #include <../board/qca/arm/common/fdt_info.h>
 #endif
@@ -193,6 +196,17 @@ int sysupgrade_ubi_init(void) {
 static int ubi_write_volume(const char *name, const void *data, size_t size, int required) {
 	char buf[256];
 	char rm_cmd[64];
+
+	/*
+	 * Never remove the old volume until we know the replacement can be
+	 * allocated. Otherwise an ENOSPC create leaves the device without a
+	 * kernel/rootfs volume.
+	 */
+	if (ubi_volume_can_replace(name, size) != 0) {
+		if (required)
+			printf("%s not updated: not enough free UBI space\n", name);
+		return -1;
+	}
 
 	snprintf(rm_cmd, sizeof(rm_cmd), "ubi remove %s", name);
 	run_command(rm_cmd, 0);

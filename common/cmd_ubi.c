@@ -264,6 +264,53 @@ out_err:
 	return err;
 }
 
+/*
+ * Check that replacing @name with a volume of @size bytes can succeed after
+ * the old volume is removed. This must be called before "ubi remove" so an
+ * ENOSPC create cannot leave the device without a kernel/rootfs volume.
+ */
+int ubi_volume_can_replace(const char *name, size_t size)
+{
+	struct ubi_volume *vol = NULL;
+	u64 new_pebs, avail;
+	int i, reserve;
+
+	if (!ubi)
+		return -1;
+
+	for (i = 0; i < ubi->vtbl_slots; i++) {
+		if (ubi->volumes[i] && !strcmp(ubi->volumes[i]->name, name)) {
+			vol = ubi->volumes[i];
+			break;
+		}
+	}
+
+	new_pebs = div_u64((u64)size + ubi->leb_size - 1, ubi->leb_size);
+	if (vol) {
+		avail = (u64)ubi->avail_pebs + vol->reserved_pebs;
+
+		/* Mirror ubi_remove_vol()'s bad-block reserve adjustment. */
+		reserve = ubi->beb_rsvd_level - ubi->beb_rsvd_pebs;
+		if (reserve > 0) {
+			if ((u64)reserve > avail)
+				avail = 0;
+			else
+				avail -= reserve;
+		}
+	} else {
+		avail = (u64)ubi->avail_pebs;
+	}
+
+	if (new_pebs > avail) {
+		printf("UBI: %s needs %llu PEBs, only %llu available after freeing it; old volume preserved\n",
+		       name, (unsigned long long)new_pebs,
+		       (unsigned long long)avail);
+		return -1;
+	}
+
+	return 0;
+}
+
 static int ubi_volume_continue_write(char *volume, void *buf, size_t size)
 {
 	int err = 1;

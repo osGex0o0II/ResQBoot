@@ -78,7 +78,7 @@ function loadPartitions(){
 			opt.value=partsData.length;
 			opt.textContent=f.l;
 			sel.appendChild(opt);
-			partsData.push({name:f.n,start:0,size:f.s,full:1,raw:f.r,oob:f.o||0});
+			partsData.push({name:f.n,start:0,size:f.s,full:1,raw:f.r,oob:f.o||0,flash:f.n==='nor_full'?'nor':'nand'});
 		});
 		nandType=data.nand_type||'none';
 		updateSize();
@@ -112,7 +112,8 @@ dlBtn.onclick=function(){
 	dlBtn.innerHTML='读取中'+spin;
 	var restoreTips=function(){tips.forEach(function(t){t.style.display='';});progEl.style.display='none';};
 	var xhr=new XMLHttpRequest();
-	xhr.open('GET','/backup?part='+encodeURIComponent(name)+(raw?'&raw=1':'')+'&size='+totalSize,true);
+	var flashParam=p.flash?'&flash='+encodeURIComponent(p.flash):'';
+	xhr.open('GET','/backup?part='+encodeURIComponent(name)+(raw?'&raw=1':'')+flashParam+'&size='+totalSize,true);
 	xhr.responseType='blob';
 	xhr.timeout=300000;
 	xhr.onprogress=function(e){
@@ -144,12 +145,12 @@ dlBtn.onclick=function(){
 			document.body.removeChild(a);
 			URL.revokeObjectURL(url);
 		} else {
-			progEl.innerHTML='下载失败。';
+			progEl.innerHTML='下载失败。若为 NAND 分区且存在坏块，请改用 nand_full_OOB 原始备份；详细地址见串口。';
 		}
 		restoreTimer=setTimeout(restoreTips,60000);
 	};
-	xhr.ontimeout=function(){onFail('下载超时。');};
-	xhr.onerror=function(){onFail('下载出错。');};
+	xhr.ontimeout=function(){onFail('下载超时。若为 NAND 分区，请确认是否存在坏块并改用 nand_full_OOB。');};
+	xhr.onerror=function(){onFail('下载出错。若为 NAND 分区，请确认是否存在坏块并改用 nand_full_OOB。');};
 	xhr.send();
 };
 
