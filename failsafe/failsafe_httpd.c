@@ -345,15 +345,29 @@ static int httpd_findandstore_firstchunk(struct failsafe_httpd_state *hs, char *
 	if (upload.file_too_big)
 		return 1;
 
-	if (webfailsafe_data_pointer + hs->upload > (u8_t *)upload.ram_end) {
-		print_error("data larger than available RAM space!");
-		upload.failed = 1;
-		upload.file_too_big = 1;
-		return 1;
-	}
+	{
+		/*
+		 * hs->upload counts everything received (data + trailing
+		 * boundary) for completion detection, but only the declared
+		 * data length may be copied into the upload buffer. Without
+		 * this cap a first packet larger than upload_total makes the
+		 * next httpd_handle_upload_data() subtraction underflow.
+		 */
+		u32_t first_data = hs->upload;
 
-	memcpy((void *)webfailsafe_data_pointer, (void *)end, hs->upload);
-	webfailsafe_data_pointer += hs->upload;
+		if (first_data > hs->upload_total)
+			first_data = hs->upload_total;
+
+		if (webfailsafe_data_pointer + first_data > (u8_t *)upload.ram_end) {
+			print_error("data larger than available RAM space!");
+			upload.failed = 1;
+			upload.file_too_big = 1;
+			return 1;
+		}
+
+		memcpy((void *)webfailsafe_data_pointer, (void *)end, first_data);
+		webfailsafe_data_pointer += first_data;
+	}
 	upload.start_time = (u32_t)get_timer(0);
 	httpd_upload_progress(hs);
 	return 1;
@@ -481,6 +495,17 @@ static int httpd_check_upload_complete(struct failsafe_httpd_state *hs) {
 
 static void httpd_handle_upload_data(struct failsafe_httpd_state *hs, char *data, int data_len) {
 	u32_t bytes_to_write = (u32_t)data_len, data_written = (u32_t)(webfailsafe_data_pointer - (u8_t *)WEBFAILSAFE_UPLOAD_RAM_ADDRESS);
+
+	if (data_written > hs->upload_total) {
+		/* Never let the subtraction below wrap. */
+		upload.failed = 1;
+		return;
+	}
+	if (data_written == hs->upload_total) {
+		/* Remaining bytes are the multipart trailer, not image data. */
+		httpd_upload_progress(hs);
+		return;
+	}
 
 	if ((u64_t)data_written + bytes_to_write > hs->upload_total)
 		bytes_to_write = hs->upload_total - data_written;
