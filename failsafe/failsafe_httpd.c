@@ -123,6 +123,7 @@ int upgrade_status = 0;
 static char part_json_buf[PART_JSON_BUF_SIZE];
 static struct failsafe_httpd_state *hs_global;
 static int upload_pending;
+static struct failsafe_httpd_state *upload_hs;
 
 static void httpd_poll_wait(int count);
 static int mac_fmt(char *buf, const uchar *m, int first);
@@ -204,6 +205,21 @@ static void httpd_state_reset(struct failsafe_httpd_state *hs) {
 			boundary_value = NULL;
 		}
 	}
+}
+
+static void httpd_reset_upload_state(void) {
+	memset(&upload, 0, sizeof(upload));
+	upload.packet_counter = 255;
+	upload_pending = 0;
+	upload_hs = NULL;
+}
+
+static void httpd_discard_pending_upload(void) {
+	upload_pending = 0;
+	upload.done = 0;
+	upload.failed = 0;
+	upload_hs = NULL;
+	upgrade_status = 0;
 }
 
 static void httpd_detach_pcb(struct tcp_pcb *pcb) {
@@ -355,7 +371,10 @@ static int httpd_parse_content_length(struct failsafe_httpd_state *hs, char *dat
 		end = strstr(start, "\r\n");
 		if (end) {
 			content_length = simple_strtoull(start, &num_end, 10);
+			while (*num_end == ' ' || *num_end == '\t')
+				num_end++;
 			if (num_end == start ||
+			    (*num_end != '\r' && *num_end != '\n') ||
 			    content_length == 0 ||
 			    content_length > 0xFFFFFFFFULL) {
 				print_error("invalid Content-Length");
@@ -432,8 +451,10 @@ static void httpd_upload_complete(struct failsafe_httpd_state *hs) {
 	}
 	led_on("blink_led");
 	upload.done = 1;
-	if (!upload.failed)
+	if (!upload.failed) {
 		upload_pending = 1;
+		upload_hs = hs;
+	}
 	upgrade_status = 1;
 	net_boot_file_size = (ulong)hs->upload_total;
 }
@@ -570,6 +591,14 @@ static const char *phy_lookup(u32 id, const struct phy_id_name *tbl, int cnt)
 
 static int phy_emit(int pos, int *first, const char *name, int addr, u16 id1, u16 id2, int link, int speed)
 {
+	/*
+	 * Leave room for the MAC list, GPIO array and JSON trailer that follow.
+	 * Once the buffer is this full, omit further PHY entries instead of
+	 * writing past about_json_buf.
+	 */
+	if (pos < 0 || pos > ABOUT_BUF_SIZE - 256)
+		return pos;
+
 	if (!*first)
 		pos += sprintf(about_json_buf + pos, ", ");
 	if (speed > 0)
@@ -1021,6 +1050,12 @@ static void httpd_handle_about(struct failsafe_httpd_state *hs) {
 	pos += sprintf(about_json_buf + pos, "]}");
 
 	hdr_len = sprintf(hdr, "HTTP/1.0 200 OK\r\nCache-Control: no-cache\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", pos);
+	if (hdr_len + pos > (int)sizeof(about_json_buf)) {
+		static const char err[] =
+			"HTTP/1.0 500 Internal Server Error\r\nConnection: close\r\n\r\nabout too large";
+		httpd_send_static(hs, err, sizeof(err) - 1);
+		return;
+	}
 	memmove(about_json_buf + hdr_len, about_json_buf, pos);
 	memcpy(about_json_buf, hdr, hdr_len);
 
@@ -1390,8 +1425,13 @@ static void httpd_handle_partitions(struct failsafe_httpd_state *hs) {
 			,"none"
 	#endif
 		);
-	} else {
+	} else if (pos <= (int)sizeof(part_json_buf) - 3) {
 		pos += sprintf(part_json_buf + pos, "]}");
+	} else {
+		static const char err[] =
+			"HTTP/1.0 500 Internal Server Error\r\nConnection: close\r\n\r\npartitions too large";
+		httpd_send_static(hs, err, sizeof(err) - 1);
+		return;
 	}
 
 	hdr_len = sprintf(hdr, "HTTP/1.0 200 OK\r\n" "Content-Type: application/json\r\n" "Content-Length: %d\r\n" "Connection: close\r\n\r\n", pos);
@@ -1473,6 +1513,15 @@ static u64 backup_flash_capacity(const char *part_name, int raw)
 			if (get_partition_info_efi_by_name(blk_dev, (char *)part_name,
 							   &disk_info) == 0)
 				return (u64)disk_info.size * blk_dev->blksz;
+			if (flash_type == SMEM_BOOT_NORPLUSEMMC) {
+				u32 offset, part_size;
+
+				/* A NOR partition on a NOR+eMMC board. */
+				if (getpart_offset_size((char *)part_name, &offset,
+							&part_size) == 0 && part_size)
+					return part_size;
+				return get_spi_flash_size();
+			}
 			return (u64)blk_dev->lba * blk_dev->blksz;
 		}
 	}
@@ -1795,11 +1844,12 @@ static err_t httpd_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
 	}
 
 	if (hs->upload <= 0) {
-		if (upload.done) {
+		if (upload.done && (!upload_hs || hs == upload_hs)) {
 			if (!upload.failed)
 				webfailsafe_ready_for_upgrade = 1;
 			upload.done = 0;
 			upload.failed = 0;
+			upload_hs = NULL;
 		}
 		httpd_close_conn(hs, pcb);
 		return ERR_OK;
@@ -1826,11 +1876,12 @@ static err_t httpd_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 		 * upload.done. Arm the upgrade here as well; the response was
 		 * already queued by httpd_check_upload_complete().
 		 */
-		if (upload.done) {
+		if (upload.done && (!upload_hs || hs == upload_hs)) {
 			if (!upload.failed)
 				webfailsafe_ready_for_upgrade = 1;
 			upload.done = 0;
 			upload.failed = 0;
+			upload_hs = NULL;
 		}
 		httpd_close_conn(hs, pcb);
 		return ERR_OK;
@@ -1918,6 +1969,7 @@ static err_t httpd_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 				httpd_send_static(hs, busy, sizeof(busy) - 1);
 				break;
 			}
+			httpd_reset_upload_state();
 			if (httpd_parse_content_length(hs, data) < 0)
 				return httpd_recv_abort(hs, pcb, data, need_free, p);
 			hs->state = STATE_UPLOAD_REQUEST;
@@ -1974,6 +2026,8 @@ static void httpd_err(void *arg, err_t err) {
 	if (hs) {
 		if (hs == hs_global)
 			hs_global = NULL;
+		if (hs == upload_hs)
+			httpd_discard_pending_upload();
 		httpd_state_reset(hs);
 		free(hs);
 	}
@@ -1985,6 +2039,8 @@ static err_t httpd_poll_cb(void *arg, struct tcp_pcb *pcb) {
 		return ERR_OK;
 
 	if (get_timer(hs->last_activity) >= 300000) {
+		if (hs == upload_hs)
+			httpd_discard_pending_upload();
 		if (hs == hs_global)
 			hs_global = NULL;
 		httpd_conn_abort(hs, pcb);
@@ -2082,6 +2138,7 @@ void failsafe_httpd_stop(void) {
 	memset(&upload, 0, sizeof(upload));
 	memset(&backup, 0, sizeof(backup));
 	upload_pending = 0;
+	upload_hs = NULL;
 	if (boundary_value) {
 		free(boundary_value);
 		boundary_value = NULL;

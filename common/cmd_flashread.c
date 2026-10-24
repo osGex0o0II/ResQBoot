@@ -661,8 +661,25 @@ int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_off
 			return nand_raw_chunk_read(load_addr, user_offset, user_size, out_offset, out_size, out_detail);
 #endif
 #ifdef CONFIG_QCA_MMC
-		if (sfi->flash_secondary_type == SMEM_BOOT_MMC_FLASH && !strncmp(part_name, "rootfs", 6))
-			return emmc_chunk_read(part_name, load_addr, user_offset, user_size, out_offset, out_size, out_detail);
+		if (sfi->flash_secondary_type == SMEM_BOOT_MMC_FLASH ||
+		    sfi->rootfs.offset == 0xBAD0FF5E) {
+			u32 start_block = 0, size_block = 0;
+
+			/*
+			 * "rootfs" is the eMMC rootfs on NOR+eMMC boards. Other
+			 * eMMC GPT partitions are not present in the SMEM table,
+			 * so route names that SMEM cannot resolve to eMMC instead
+			 * of reading the NOR chip at the wrong offset.
+			 */
+			if (!strncmp(part_name, "rootfs", 6) ||
+			    smem_getpart((char *)part_name, &start_block,
+					 &size_block) == -ENOENT ||
+			    (start_block == 0 && size_block == 0))
+				return emmc_chunk_read(part_name, load_addr,
+						       user_offset, user_size,
+						       out_offset, out_size,
+						       out_detail);
+		}
 #endif
 	}
 	return sf_chunk_read(part_name, load_addr, user_offset, user_size, raw, out_offset, out_size, out_detail);
