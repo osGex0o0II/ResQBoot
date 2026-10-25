@@ -22,7 +22,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     env:
       TZ: Asia/Shanghai
@@ -94,7 +94,7 @@ jobs:
     name: Create Release
     needs: build
     if: success() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ipq_type == 'all'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     concurrency:
       group: release-${{ github.ref }}
       cancel-in-progress: false
