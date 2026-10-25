@@ -557,6 +557,81 @@ static int sf_chunk_read(const char *part_name, u32 load_addr, u64 user_offset, 
 	return CMD_RET_SUCCESS;
 }
 
+/*
+ * Validate an explicitly requested flash type against the board's actual
+ * flash topology.  get_which_flash_param() alone is not enough: some QCA
+ * SMEM tables mark every partition with attribute 0x0000ffff, so it reports
+ * "NOR" even on a NAND-only board.  The board-level type and the secondary
+ * type are authoritative; the per-partition flag is only an extra guard.
+ */
+static int flash_override_matches(const char *part_name, int override) {
+	qca_smem_flash_info_t *sfi = &qca_smem_flash_info;
+	uint32_t current = sfi->flash_type;
+	int which;
+
+	if (override == -1)
+		return 1;
+
+	(void)get_current_flash_type(&current);
+
+	switch (override) {
+	case SMEM_BOOT_NAND_FLASH:
+	case SMEM_BOOT_QSPI_NAND_FLASH:
+		if (current != SMEM_BOOT_NAND_FLASH &&
+		    current != SMEM_BOOT_QSPI_NAND_FLASH &&
+		    current != SMEM_BOOT_NORPLUSNAND &&
+		    sfi->flash_type != SMEM_BOOT_NAND_FLASH &&
+		    sfi->flash_type != SMEM_BOOT_QSPI_NAND_FLASH &&
+		    sfi->flash_secondary_type != SMEM_BOOT_NAND_FLASH &&
+		    sfi->flash_secondary_type != SMEM_BOOT_QSPI_NAND_FLASH)
+			return 0;
+		if (!strcmp(part_name, "nor_full") ||
+		    !strcmp(part_name, "0:GPT") ||
+		    !strcmp(part_name, "0:GPTBACKUP"))
+			return 0;
+		which = get_which_flash_param((char *)part_name);
+		if (strcmp(part_name, "nand_full") != 0 && which == 0 &&
+		    current == SMEM_BOOT_NORPLUSNAND)
+			return 0;
+		return 1;
+
+	case SMEM_BOOT_SPI_FLASH:
+		if (current != SMEM_BOOT_SPI_FLASH &&
+		    current != SMEM_BOOT_NOR_FLASH &&
+		    current != SMEM_BOOT_NORPLUSNAND &&
+		    current != SMEM_BOOT_NORPLUSEMMC &&
+		    sfi->flash_type != SMEM_BOOT_SPI_FLASH &&
+		    sfi->flash_type != SMEM_BOOT_NOR_FLASH)
+			return 0;
+		if (!strcmp(part_name, "nand_full") ||
+		    !strcmp(part_name, "0:GPT") ||
+		    !strcmp(part_name, "0:GPTBACKUP"))
+			return 0;
+		if (get_which_flash_param((char *)part_name) > 0)
+			return 0;
+		return 1;
+
+	case SMEM_BOOT_MMC_FLASH:
+#ifdef CONFIG_QCA_MMC
+		if (current != SMEM_BOOT_MMC_FLASH &&
+		    current != SMEM_BOOT_NORPLUSEMMC &&
+		    sfi->flash_type != SMEM_BOOT_MMC_FLASH &&
+		    sfi->flash_secondary_type != SMEM_BOOT_MMC_FLASH &&
+		    sfi->rootfs.offset != 0xBAD0FF5E)
+			return 0;
+		if (!strcmp(part_name, "nand_full") ||
+		    !strcmp(part_name, "nor_full"))
+			return 0;
+		return 1;
+#else
+		return 0;
+#endif
+
+	default:
+		return 0;
+	}
+}
+
 int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_offset, u32 user_size, int raw, int flash_type_override, u32 *out_offset, u32 *out_size, char *out_detail) {
 	qca_smem_flash_info_t *sfi = &qca_smem_flash_info;
 	int flash_type = (flash_type_override != -1) ? flash_type_override :
@@ -572,25 +647,14 @@ int flashread_partition_chunk(const char *part_name, u32 load_addr, u64 user_off
 
 	/*
 	 * An explicit flash type must not read a partition of another type at
-	 * the same name/offset. The UI sends this from /partitions, but keep
-	 * the backend strict for malformed requests too.
+	 * the same name/offset.  This must run before the nand_full/nor_full
+	 * special cases, which would otherwise bypass the check.
 	 */
-#ifdef CONFIG_CMD_NAND
-	if (flash_type_override == SMEM_BOOT_SPI_FLASH &&
-	    get_which_flash_param((char *)part_name) > 0) {
+	if (!flash_override_matches(part_name, flash_type_override)) {
 		if (out_detail)
 			snprintf(out_detail, 32, "flash type mismatch");
 		return CMD_RET_FAILURE;
 	}
-	if (flash_type_override == SMEM_BOOT_NAND_FLASH &&
-	    sfi->flash_type == SMEM_BOOT_SPI_FLASH &&
-	    strcmp(part_name, "nand_full") != 0 &&
-	    get_which_flash_param((char *)part_name) == 0) {
-		if (out_detail)
-			snprintf(out_detail, 32, "flash type mismatch");
-		return CMD_RET_FAILURE;
-	}
-#endif
 
 #ifdef CONFIG_CMD_NAND
 	if (!strcmp(part_name, "nand_full") || flash_type == SMEM_BOOT_NAND_FLASH ||

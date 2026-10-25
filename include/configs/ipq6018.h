@@ -101,7 +101,16 @@
 #define CONFIG_QCA_SMEM_SIZE		0x100000
 
 #define CONFIG_IPQ_FDT_HIGH		0x48500000
+/*
+ * ZN-M2 exposes five QCA8075 PHY ports.  The sixth ART slot is unprogrammed
+ * (FF:FF:FF:FF:FF:FF) and has no corresponding eth device, so do not expose
+ * it to the MAC tools or the failsafe UI.
+ */
+#if defined(CONFIG_IPQ6018_M2)
+#define CONFIG_IPQ_NO_MACS		5
+#else
 #define CONFIG_IPQ_NO_MACS		6
+#endif
 #define CONFIG_ENV_IS_IN_SPI_FLASH	1
 #define CONFIG_ENV_SECT_SIZE		(64 * 1024)
 

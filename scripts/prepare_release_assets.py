@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import os
 import shutil
 import sys
@@ -86,8 +87,32 @@ def write_release_body(path: Path, devices: list[dict[str, str]]) -> None:
             )
         )
 
+    lines.extend(
+        [
+            "",
+            "## Checksums",
+            "",
+            "Verify every download with `SHA256SUMS` (`<sha256>  <filename>`).",
+            "This prevents selecting a stale asset with the same filename from an older release.",
+            "",
+        ]
+    )
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_checksums(output_dir: Path) -> None:
+    lines = []
+    for asset in sorted(output_dir.iterdir()):
+        if not asset.is_file() or asset.name == "SHA256SUMS":
+            continue
+        digest = hashlib.sha256()
+        with asset.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        lines.append(f"{digest.hexdigest()}  {asset.name}")
+    (output_dir / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def prepare_assets(artifacts_dir: Path, output_dir: Path, devices: list[dict[str, str]]) -> list[str]:
@@ -128,6 +153,8 @@ def main() -> int:
     devices = read_devices()
     errors = prepare_assets(args.artifacts_dir, args.output_dir, devices)
     write_release_body(args.body, devices)
+    if not errors:
+        write_checksums(args.output_dir)
 
     if errors:
         print("Release asset preparation failed:")
@@ -135,7 +162,7 @@ def main() -> int:
             print(f"  - {error}")
         return 1
 
-    print(f"Prepared {len(devices)} release assets in {args.output_dir}")
+    print(f"Prepared {len(devices)} release assets plus SHA256SUMS in {args.output_dir}")
     print(f"Release body written to {args.body}")
     return 0
 

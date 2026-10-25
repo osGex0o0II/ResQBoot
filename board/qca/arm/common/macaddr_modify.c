@@ -1,7 +1,13 @@
 #include <common.h>
 #include <command.h>
 #include <net.h>
-#ifdef CONFIG_NAND_FLASH
+/*
+ * IPQ6018 selects NAND through CONFIG_QPIC_NAND/CONFIG_CMD_NAND and does not
+ * define the IPQ5018/IPQ5332-only CONFIG_NAND_FLASH symbol.  Use the command
+ * symbol so ART reads/writes work on every NAND platform, not just those that
+ * happen to enable the newer Kconfig option.
+ */
+#if defined(CONFIG_CMD_NAND)
 #include <nand.h>
 #endif
 #include <spi.h>
@@ -131,7 +137,7 @@ static int art_read(loff_t offset, size_t size, void *buf) {
 			return -ENODEV;
 		ret = spi_flash_read(flash, base + offset, size, buf);
 	} else if (is_nand_flash(sfi->flash_type)) {
-#if defined(CONFIG_NAND_FLASH)
+#if defined(CONFIG_CMD_NAND)
 #if defined(CONFIG_IPQ40XX) || defined(CONFIG_IPQ806X)
 		int idx = is_spi_nand_available();
 #else
@@ -206,7 +212,7 @@ static int art_write(loff_t offset, size_t size, const void *buf) {
 			return ret;
 		ret = spi_flash_write(flash, base + offset, size, buf);
 	} else if (is_nand_flash(sfi->flash_type)) {
-#if defined(CONFIG_NAND_FLASH)
+#if defined(CONFIG_CMD_NAND)
 #if defined(CONFIG_IPQ40XX) || defined(CONFIG_IPQ806X)
 		int idx = is_spi_nand_available();
 #else

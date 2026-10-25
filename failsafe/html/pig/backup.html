@@ -145,7 +145,17 @@ dlBtn.onclick=function(){
 			document.body.removeChild(a);
 			URL.revokeObjectURL(url);
 		} else {
-			progEl.innerHTML='下载失败。若为 NAND 分区且存在坏块，请改用 nand_full_OOB 原始备份；详细地址见串口。';
+			var msg='下载失败。若为 NAND 分区且存在坏块，请改用 nand_full_OOB 原始备份；详细地址见串口。';
+			var blob=xhr.response;
+			if(blob&&window.FileReader){
+				var fr=new FileReader();
+				fr.onload=function(){onFail((fr.result||msg).trim());};
+				fr.onerror=function(){onFail(msg);};
+				fr.readAsText(blob);
+			} else {
+				onFail(msg);
+			}
+			return;
 		}
 		restoreTimer=setTimeout(restoreTips,60000);
 	};

@@ -131,8 +131,14 @@ int get_eth_mac_address(uchar *enetaddr, uint no_of_macs)
 		 */
 		(void)flash_type;
 #else
-		ret = nand_read(&nand_info[flash_type],
-				art_offset, &length, enetaddr);
+		{
+			size_t read_len = length;
+
+			ret = nand_read(&nand_info[flash_type],
+					art_offset, &read_len, enetaddr);
+			if (ret >= 0 && read_len != length)
+				ret = -EIO;
+		}
 #endif
 		if (ret < 0)
 			printf("ART partition read failed..\n");

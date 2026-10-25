@@ -550,6 +550,39 @@ static void url_decode(char *s) {
 	*dst = '\0';
 }
 
+/*
+ * Extract an application/x-www-form-urlencoded field.  Matching only at the
+ * start of a field avoids treating e.g. "xiface=" as "iface=".  The value is
+ * URL-decoded before it is returned.
+ */
+static int httpd_form_value(const char *body, const char *key, char *out,
+			    size_t out_size) {
+	size_t klen;
+	const char *p;
+
+	if (!body || !key || !out || !out_size)
+		return -1;
+
+	klen = strlen(key);
+	for (p = body; *p; ) {
+		const char *amp = strchr(p, '&');
+		size_t len = amp ? (size_t)(amp - p) : strlen(p);
+
+		if (len > klen && !strncmp(p, key, klen) && p[klen] == '=') {
+			size_t vlen = len - klen - 1;
+
+			if (vlen >= out_size)
+				return -1;
+			memcpy(out, p + klen + 1, vlen);
+			out[vlen] = '\0';
+			url_decode(out);
+			return 0;
+		}
+		p = amp ? amp + 1 : NULL;
+	}
+	return -1;
+}
+
 static void httpd_send_static(struct failsafe_httpd_state *hs, const char *data, int len) {
 	hs->state = STATE_FILE_REQUEST;
 	hs->dataptr = (u8_t *)data;
@@ -1258,6 +1291,12 @@ static void httpd_handle_env_set(struct failsafe_httpd_state *hs, char *data, in
 				name[nlen] = '\0';
 				memcpy(value, eq + 1, vlen);
 				value[vlen] = '\0';
+				/*
+				 * The Web UI submits this as application/x-www-form-
+				 * urlencoded, so decode before validating/storing.
+				 */
+				url_decode(name);
+				url_decode(value);
 
 				if (strcmp(name, "reset_key") == 0) {
 					if (value[0]) {
@@ -1380,18 +1419,37 @@ static void httpd_handle_mac_info(struct failsafe_httpd_state *hs) {
 static void httpd_handle_mac_set(struct failsafe_httpd_state *hs, char *data, int data_len) {
 	static char resp[128];
 	int len, ok = 0, type = -1, index = -1;
-	char *body = strstr(data, "\r\n\r\n"), *s;
+	char *body = strstr(data, "\r\n\r\n");
+	char iface[16] = "", mac_str[32] = "";
 	u8 mac[6];
+
 	if (body) {
 		body += 4;
-		if ((s = strstr(body, "iface="))) {
-			type = !strncmp(s + 6, "eth", 3) && s[9] >= '0' && s[9] <= '9' ? 0 : !strncmp(s + 6, "wifi", 4) && s[10] >= '0' && s[10] <= '9' ? 1 : -1;
-			if (type >= 0) index = simple_strtoul(s + (type ? 10 : 9), NULL, 0);
-		}
-		if (type >= 0 && (s = strstr(body, "mac="))) {
-			eth_parse_enetaddr(s + 4, mac);
-			if (is_valid_ethaddr(mac))
-				ok = (type ? macaddr_modify_wifi(mac, index) : macaddr_modify_base(mac, index)) >= 0;
+		if (httpd_form_value(body, "iface", iface, sizeof(iface)) == 0 &&
+		    httpd_form_value(body, "mac", mac_str, sizeof(mac_str)) == 0) {
+			char *end = NULL;
+			unsigned long idx = 0;
+
+			if (!strncmp(iface, "eth", 3)) {
+				idx = simple_strtoul(iface + 3, &end, 10);
+				if (*end == '\0') {
+					type = 0;
+					index = (int)idx;
+				}
+			} else if (!strncmp(iface, "wifi", 4)) {
+				idx = simple_strtoul(iface + 4, &end, 10);
+				if (*end == '\0') {
+					type = 1;
+					index = (int)idx;
+				}
+			}
+
+			if (type >= 0) {
+				eth_parse_enetaddr(mac_str, mac);
+				if (is_valid_ethaddr(mac))
+					ok = (type ? macaddr_modify_wifi(mac, index) :
+						     macaddr_modify_base(mac, index)) >= 0;
+			}
 		}
 	}
 	len = sprintf(resp, "HTTP/1.0 200 OK\r\nCache-Control: no-cache\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n%s", ok ? "ok" : "error");
@@ -1661,7 +1719,7 @@ static u64 backup_flash_capacity(const char *part_name, int raw, int flash_type_
 static void httpd_handle_backup(struct failsafe_httpd_state *hs, char *data, int data_len) {
 	char *query = strchr(&data[4], '?'), part_name[64], filename[96], *size_param, *amp;
 	ulong size;
-	int hdr_len, raw = 0, flash_type_override = -1;
+	int hdr_len, raw = 0, flash_type_override = -1, flash_invalid = 0;
 	u32_t ram_avail;
 	u64 total_size = 0;
 
@@ -1690,18 +1748,43 @@ static void httpd_handle_backup(struct failsafe_httpd_state *hs, char *data, int
 		raw = 1;
 
 	{
-		char *flash_param = strstr(query, "flash=");
+		char *flash_param = query;
+
+		/*
+		 * Only accept an exact field name.  Substring matching would make
+		 * "notflash=nor" select NOR and would silently ignore typoed
+		 * values instead of rejecting them.
+		 */
+		while ((flash_param = strstr(flash_param, "flash=")) != NULL) {
+			if (flash_param == query || flash_param[-1] == '?' ||
+			    flash_param[-1] == '&')
+				break;
+			flash_param++;
+		}
 
 		if (flash_param) {
 			char *fp = flash_param + 6;
+			int flen = 0;
 
-			if (!strncmp(fp, "emmc", 4))
+			while (fp[flen] && fp[flen] != '&' && fp[flen] != '\r' &&
+			       fp[flen] != '\n' && fp[flen] != ' ')
+				flen++;
+
+			if (flen == 4 && !strncmp(fp, "emmc", 4))
 				flash_type_override = SMEM_BOOT_MMC_FLASH;
-			else if (!strncmp(fp, "nand", 4))
+			else if (flen == 4 && !strncmp(fp, "nand", 4))
 				flash_type_override = SMEM_BOOT_NAND_FLASH;
-			else if (!strncmp(fp, "nor", 3))
+			else if (flen == 3 && !strncmp(fp, "nor", 3))
 				flash_type_override = SMEM_BOOT_SPI_FLASH;
+			else
+				flash_invalid = 1;
 		}
+	}
+
+	if (flash_invalid) {
+		static const char *err = "HTTP/1.0 400 Bad Request\r\nConnection: close\r\n\r\nInvalid flash type";
+		httpd_send_static(hs, err, strlen(err));
+		return;
 	}
 
 	size_param = strstr(query, "size=");
