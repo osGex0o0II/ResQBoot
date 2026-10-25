@@ -555,6 +555,24 @@ static void url_decode(char *s) {
  * start of a field avoids treating e.g. "xiface=" as "iface=".  The value is
  * URL-decoded before it is returned.
  */
+static int mac_string_valid(const char *s) {
+	int i;
+
+	if (!s || strlen(s) != 17)
+		return 0;
+	for (i = 0; i < 17; i++) {
+		if (i % 3 == 2) {
+			if (s[i] != ':')
+				return 0;
+		} else if (!((s[i] >= '0' && s[i] <= '9') ||
+			     (s[i] >= 'a' && s[i] <= 'f') ||
+			     (s[i] >= 'A' && s[i] <= 'F'))) {
+			return 0;
+		}
+	}
+	return s[17] == '\0';
+}
+
 static int httpd_form_value(const char *body, const char *key, char *out,
 			    size_t out_size) {
 	size_t klen;
@@ -1444,7 +1462,13 @@ static void httpd_handle_mac_set(struct failsafe_httpd_state *hs, char *data, in
 				}
 			}
 
-			if (type >= 0) {
+			/*
+			 * eth_parse_enetaddr() is deliberately forgiving and
+			 * turns "zz" into 0, which would let a malformed API
+			 * request overwrite ART.  Require the canonical
+			 * XX:XX:XX:XX:XX:XX form first.
+			 */
+			if (type >= 0 && mac_string_valid(mac_str)) {
 				eth_parse_enetaddr(mac_str, mac);
 				if (is_valid_ethaddr(mac))
 					ok = (type ? macaddr_modify_wifi(mac, index) :

@@ -553,6 +553,24 @@ int macaddr_wifi_cs_valid(int wifi_index) {
 	return ret;
 }
 
+static int mac_string_valid(const char *s) {
+	int i;
+
+	if (!s || strlen(s) != 17)
+		return 0;
+	for (i = 0; i < 17; i++) {
+		if (i % 3 == 2) {
+			if (s[i] != ':')
+				return 0;
+		} else if (!((s[i] >= '0' && s[i] <= '9') ||
+			     (s[i] >= 'a' && s[i] <= 'f') ||
+			     (s[i] >= 'A' && s[i] <= 'F'))) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
 static int parse_iface(const char *arg, int *type, int *index) {
 	if ((!strncmp(arg, "eth", 3) && arg[3] >= '0' && arg[3] <= '9') ||
 	    (!strncmp(arg, "wifi", 4) && arg[4] >= '0' && arg[4] <= '9')) {
@@ -594,6 +612,10 @@ static int do_mac(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[]) {
 	if (is_write) {
 		if (argc != 4)
 			return CMD_RET_USAGE;
+		if (!mac_string_valid(argv[3])) {
+			printf("Invalid MAC address\n");
+			return CMD_RET_FAILURE;
+		}
 		eth_parse_enetaddr(argv[3], mac);
 		if (!is_valid_ethaddr(mac)) {
 			printf("Invalid MAC address\n");
