@@ -382,7 +382,7 @@ static int do_firmware_upgrade(const ulong size) {
 				}
 			} else if (fw_type == FW_TYPE_QSDK) {
 				print_upgrade_warning("FIRMWARE");
-				sprintf(buf, "imxtract 0x%lx %s && flash 0:HLOS $fileaddr $filesize && imxtract 0x%lx %s && flash rootfs $fileaddr $filesize && imxtract 0x%lx %s && flash 0:WIFIFW $fileaddr $filesize",
+				sprintf(buf, "imxtract 0x%lx %s && flash 0:HLOS && imxtract 0x%lx %s && flash rootfs && imxtract 0x%lx %s && flash 0:WIFIFW",
 					UPLOAD_ADDR, HLOS_NAME, UPLOAD_ADDR, ROOTFS_NAME, UPLOAD_ADDR, WIFIFW_NAME);
 				if (execute_command(buf) != 0) {
 					printf("Failed to execute flash command\n");
@@ -404,12 +404,12 @@ static int do_firmware_upgrade(const ulong size) {
 			if (fw_type == FW_TYPE_UBI) {
 				print_upgrade_warning("FIRMWARE");
 				if (webfailsafe_backup_avail_enabled)
-					sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", ROOTFS_NAME0, UPLOAD_ADDR, ROOTFS_NAME1, UPLOAD_ADDR, ROOTFS_NAME2, UPLOAD_ADDR, ROOTFS_NAME_1, UPLOAD_ADDR);
+					sprintf(buf, "flash %s && flash %s && flash %s && flash %s", ROOTFS_NAME0, ROOTFS_NAME1, ROOTFS_NAME2, ROOTFS_NAME_1);
 				else
-					sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", ROOTFS_NAME0, UPLOAD_ADDR, ROOTFS_NAME1, UPLOAD_ADDR, ROOTFS_NAME2, UPLOAD_ADDR);
+					sprintf(buf, "flash %s && flash %s && flash %s", ROOTFS_NAME0, ROOTFS_NAME1, ROOTFS_NAME2);
 			} else if (fw_type == FW_TYPE_FIT) {
 				print_upgrade_warning("FIRMWARE");
-				sprintf(buf, "sf probe; imgaddr=0x%lx && source $imgaddr:script", UPLOAD_ADDR);
+				sprintf(buf, "sf probe && source 0x%lx:script", UPLOAD_ADDR);
 			} else if (fw_type == FW_TYPE_SYSUPGRADE) {
 				print_upgrade_warning("FIRMWARE");
 				sysupgrade_fw_parts parts = parse_sysupgrade_firmware((void *)UPLOAD_ADDR, size);
@@ -427,7 +427,7 @@ static int do_firmware_upgrade(const ulong size) {
 #endif
 			} else if (fw_type == FW_TYPE_QSDK) {
 				print_upgrade_warning("FIRMWARE");
-				sprintf(buf, "sf probe; imgaddr=0x%lx && source $imgaddr:script", UPLOAD_ADDR);
+				sprintf(buf, "sf probe && source 0x%lx:script", UPLOAD_ADDR);
 			} else {
 				printf("\n* NAND flash only supports UBI/FIT/SYSUPGRADE/QSDK firmware, got: %s *\n", fw_type_to_string(fw_type));
 				return -1;
@@ -441,7 +441,7 @@ static int do_firmware_upgrade(const ulong size) {
 				if (fw_type == FW_TYPE_FIT || fw_type == FW_TYPE_SYSUPGRADE) {
 					sprintf(buf, "sf probe && sf erase 0x%lx 0x%lx && sf write 0x%lx 0x%lx 0x%lx", (unsigned long)NOR_FIRMWARE_START, (unsigned long)NOR_FIRMWARE_SIZE, UPLOAD_ADDR, (unsigned long)NOR_FIRMWARE_START, size);
 				} else {
-					sprintf(buf, "sf probe; imgaddr=0x%lx && source $imgaddr:script", UPLOAD_ADDR);
+					sprintf(buf, "sf probe && source 0x%lx:script", UPLOAD_ADDR);
 				}
 			} else {
 				printf("\n* NOR flash only supports FIT/SYSUPGRADE/QSDK firmware, got: %s *\n", fw_type_to_string(fw_type));
@@ -455,9 +455,9 @@ static int do_firmware_upgrade(const ulong size) {
 				if (fw_type == FW_TYPE_UBI) {
 					print_upgrade_warning("FIRMWARE");
 					if (webfailsafe_backup_avail_enabled)
-						sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", ROOTFS_NAME0, UPLOAD_ADDR, ROOTFS_NAME1, UPLOAD_ADDR, ROOTFS_NAME2, UPLOAD_ADDR, ROOTFS_NAME_1, UPLOAD_ADDR);
+						sprintf(buf, "flash %s && flash %s && flash %s && flash %s", ROOTFS_NAME0, ROOTFS_NAME1, ROOTFS_NAME2, ROOTFS_NAME_1);
 					else
-						sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", ROOTFS_NAME0, UPLOAD_ADDR, ROOTFS_NAME1, UPLOAD_ADDR, ROOTFS_NAME2, UPLOAD_ADDR);
+						sprintf(buf, "flash %s && flash %s && flash %s", ROOTFS_NAME0, ROOTFS_NAME1, ROOTFS_NAME2);
 				} else if (fw_type == FW_TYPE_SYSUPGRADE) {
 					print_upgrade_warning("FIRMWARE");
 					sysupgrade_fw_parts parts = parse_sysupgrade_firmware((void *)UPLOAD_ADDR, size);
@@ -475,7 +475,7 @@ static int do_firmware_upgrade(const ulong size) {
 #endif
 				} else if (fw_type == FW_TYPE_QSDK) {
 					print_upgrade_warning("FIRMWARE");
-					sprintf(buf, "sf probe; imgaddr=0x%lx && source $imgaddr:script", UPLOAD_ADDR);
+					sprintf(buf, "sf probe && source 0x%lx:script", UPLOAD_ADDR);
 				} else {
 					printf("\n* SPI+NAND flash only supports UBI/SYSUPGRADE/QSDK firmware, got: %s *\n", fw_type_to_string(fw_type));
 					return -1;
@@ -486,7 +486,7 @@ static int do_firmware_upgrade(const ulong size) {
 					if (fw_type == FW_TYPE_FIT || fw_type == FW_TYPE_SYSUPGRADE) {
 						sprintf(buf, "sf probe && sf erase 0x%lx 0x%lx && sf write 0x%lx 0x%lx 0x%lx", (unsigned long)NOR_FIRMWARE_START, (unsigned long)NOR_FIRMWARE_SIZE, UPLOAD_ADDR, (unsigned long)NOR_FIRMWARE_START, size);
 					} else {
-						sprintf(buf, "sf probe; imgaddr=0x%lx && source $imgaddr:script", UPLOAD_ADDR);
+						sprintf(buf, "sf probe && source 0x%lx:script", UPLOAD_ADDR);
 					}
 				} else {
 					printf("\n* NOR flash only supports FIT/SYSUPGRADE/QSDK firmware, got: %s *\n", fw_type_to_string(fw_type));
@@ -537,8 +537,9 @@ static int do_uboot_upgrade(const ulong size) {
 
 	/*
 	 * Use the two-argument form: it reads fileaddr/filesize directly from
-	 * the environment set by the HTTP upload path.  Keeping "$filesize"
-	 * out of the command string avoids depending on shell expansion.
+	 * the environment set by the HTTP upload path.  Keeping shell
+	 * variables out of the command string avoids depending on expansion,
+	 * which is not reliable in this U-Boot build.
 	 */
 	sprintf(buf, "flash %s", UBOOT_NAME);
 	ret = execute_command(buf);
@@ -580,7 +581,7 @@ static int do_art_upgrade(const ulong size) {
 	print_upgrade_warning("ART");
 	switch (flash_type) {
 		case SMEM_BOOT_MMC_FLASH:
-			sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash %s 0x%lx $filesize", UPLOAD_ADDR + size, ART_NAME, UPLOAD_ADDR);
+			sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash %s", UPLOAD_ADDR + size, ART_NAME);
 			break;
 		case SMEM_BOOT_NAND_FLASH:
 		case SMEM_BOOT_SPI_FLASH:
@@ -588,7 +589,7 @@ static int do_art_upgrade(const ulong size) {
 		case SMEM_BOOT_QSPI_NAND_FLASH:
 		case SMEM_BOOT_NORPLUSEMMC:
 		case SMEM_BOOT_NORPLUSNAND:
-			sprintf(buf, "flash %s 0x%lx $filesize", ART_NAME, UPLOAD_ADDR);
+			sprintf(buf, "flash %s", ART_NAME);
 			break;
 		default:
 			printf("\n* Unsupported flash type for ART *\n");
@@ -716,9 +717,9 @@ static int do_cdt_upgrade(const ulong size) {
 	switch (flash_type) {
 		case SMEM_BOOT_MMC_FLASH:
 			if (webfailsafe_backup_avail_enabled)
-				sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", UPLOAD_ADDR + size, CDT_NAME, UPLOAD_ADDR, CDT_NAME_1, UPLOAD_ADDR);
+				sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash %s && flash %s", UPLOAD_ADDR + size, CDT_NAME, CDT_NAME_1);
 			else
-				sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash %s 0x%lx $filesize", UPLOAD_ADDR + size, CDT_NAME, UPLOAD_ADDR);
+				sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash %s", UPLOAD_ADDR + size, CDT_NAME);
 			break;
 		case SMEM_BOOT_NAND_FLASH:
 		case SMEM_BOOT_SPI_FLASH:
@@ -727,9 +728,9 @@ static int do_cdt_upgrade(const ulong size) {
 		case SMEM_BOOT_NORPLUSEMMC:
 		case SMEM_BOOT_NORPLUSNAND:
 			if (webfailsafe_backup_avail_enabled)
-				sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", CDT_NAME, UPLOAD_ADDR, CDT_NAME_1, UPLOAD_ADDR);
+				sprintf(buf, "flash %s && flash %s", CDT_NAME, CDT_NAME_1);
 			else
-				sprintf(buf, "flash %s 0x%lx $filesize", CDT_NAME, UPLOAD_ADDR);
+				sprintf(buf, "flash %s", CDT_NAME);
 			break;
 		default:
 			printf("\n* Unsupported flash type for CDT *\n");
@@ -795,7 +796,7 @@ static int do_mibib_upgrade(const ulong size) {
 		case SMEM_BOOT_QSPI_NAND_FLASH:
 		case SMEM_BOOT_NORPLUSEMMC:
 		case SMEM_BOOT_NORPLUSNAND:
-			sprintf(buf, "flash %s 0x%lx $filesize", MIBIB_NAME, UPLOAD_ADDR);
+			sprintf(buf, "flash %s", MIBIB_NAME);
 			break;
 		default:
 			printf("\n* Unsupported flash type for MIBIB *\n");
