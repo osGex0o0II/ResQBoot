@@ -2451,7 +2451,7 @@ void failsafe_httpd_poll(void) {
 							  webfailsafe_upgrade_type);
 
 			upload_pending = 0;
-			if (upgrade_ret < 0) {
+			if (upgrade_ret != 0) {
 				do_http_progress(WEBFAILSAFE_PROGRESS_UPGRADE_FAILED);
 				upgrade_status = 3;
 				httpd_poll_wait(2000);

@@ -165,6 +165,25 @@ static int execute_command(const char *cmd) {
 	return run_command(cmd, 0);
 }
 
+/*
+ * Read the freshly written partition back into a scratch area and compare it
+ * with the uploaded image.  A successful "flash" command is not enough: a
+ * malformed command line or a silent NAND failure can leave the old image in
+ * place while still returning success.
+ */
+static int verify_flashed_image(const char *part_name, ulong size) {
+	char buf[128];
+	ulong verify_addr = UPLOAD_ADDR + 0x200000;
+
+	if (size > (8 << 20))
+		return -1;
+	snprintf(buf, sizeof(buf), "flashread %s 0x%lx 0x%lx",
+		 part_name, verify_addr, size);
+	if (execute_command(buf) != 0)
+		return -1;
+	return memcmp((void *)UPLOAD_ADDR, (void *)verify_addr, size) ? -1 : 0;
+}
+
 static void print_upgrade_warning(const char *upgrade_type) {
 	printf("\n*%s UPGRADING DO NOT POWER OFF!*\n", upgrade_type);
 }
@@ -486,6 +505,8 @@ static int do_firmware_upgrade(const ulong size) {
 static int do_uboot_upgrade(const ulong size) {
 	char buf[576];
 	uint32_t flash_type;
+	int ret;
+
 	if (get_current_flash_type(&flash_type) != 0)
 		return -1;
 	if (check_fw_type((void *)UPLOAD_ADDR) != FW_TYPE_ELF) {
@@ -493,12 +514,14 @@ static int do_uboot_upgrade(const ulong size) {
 		return -1;
 	}
 	print_upgrade_warning("U-BOOT");
+
 	switch (flash_type) {
 		case SMEM_BOOT_MMC_FLASH:
-			if (webfailsafe_backup_avail_enabled)
-				sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash 0:APPSBL 0x%lx $filesize && flash 0:APPSBL_1 0x%lx $filesize", UPLOAD_ADDR + size, UPLOAD_ADDR, UPLOAD_ADDR);
-			else
-				sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0 && flash 0:APPSBL 0x%lx $filesize", UPLOAD_ADDR + size, UPLOAD_ADDR);
+			sprintf(buf, "mw 0x%lx 0x00 0x200 && mmc dev 0", UPLOAD_ADDR + size);
+			if (execute_command(buf) != 0) {
+				printf("\n* Failed to prepare eMMC for U-Boot write *\n");
+				return -1;
+			}
 			break;
 		case SMEM_BOOT_NAND_FLASH:
 		case SMEM_BOOT_SPI_FLASH:
@@ -506,16 +529,42 @@ static int do_uboot_upgrade(const ulong size) {
 		case SMEM_BOOT_QSPI_NAND_FLASH:
 		case SMEM_BOOT_NORPLUSEMMC:
 		case SMEM_BOOT_NORPLUSNAND:
-			if (webfailsafe_backup_avail_enabled)
-				sprintf(buf, "flash %s 0x%lx $filesize && flash %s 0x%lx $filesize", UBOOT_NAME, UPLOAD_ADDR, UBOOT_NAME_1, UPLOAD_ADDR);
-			else
-				sprintf(buf, "flash %s 0x%lx $filesize", UBOOT_NAME, UPLOAD_ADDR);
 			break;
 		default:
 			printf("\n* Unsupported flash type for U-Boot *\n");
 			return -1;
 	}
-	return execute_command(buf);
+
+	/*
+	 * Use the two-argument form: it reads fileaddr/filesize directly from
+	 * the environment set by the HTTP upload path.  Keeping "$filesize"
+	 * out of the command string avoids depending on shell expansion.
+	 */
+	sprintf(buf, "flash %s", UBOOT_NAME);
+	ret = execute_command(buf);
+	if (ret != CMD_RET_SUCCESS) {
+		printf("\n* U-Boot primary flash failed (%d) *\n", ret);
+		return -1;
+	}
+	if (verify_flashed_image(UBOOT_NAME, size) != 0) {
+		printf("\n* U-Boot primary read-back verification failed *\n");
+		return -1;
+	}
+
+	if (webfailsafe_backup_avail_enabled) {
+		sprintf(buf, "flash %s", UBOOT_NAME_1);
+		ret = execute_command(buf);
+		if (ret != CMD_RET_SUCCESS) {
+			printf("\n* U-Boot backup flash failed (%d) *\n", ret);
+			return -1;
+		}
+		if (verify_flashed_image(UBOOT_NAME_1, size) != 0) {
+			printf("\n* U-Boot backup read-back verification failed *\n");
+			return -1;
+		}
+	}
+
+	return 0;
 }
 
 static int do_art_upgrade(const ulong size) {
