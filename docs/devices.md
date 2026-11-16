@@ -6,6 +6,8 @@
 
 **测试标记**：`✓` 为已标记测试，`×` 为未测试，`?` 为状态未知。标记来自设备元数据，不代表对应资产通过本次 Release 的实机验证；通用配置的标记也不适用于推断特定设备的测试结果。
 
+MD16 配置已移植上游设备树，尚未验证 YT921X 交换机初始化及实机刷写；请勿仅凭编译成功判断适配完成。
+
 | 平台 | 配置 | 设备或通用配置 | Release 资产 | Mach ID | 测试标记 | 构建命令 |
 | --- | --- | --- | --- | --- | --- | --- |
 | IPQ40xx | `ipq40xx_aliyun_ap4220` | Aliyun AP4220 | `IPQ40xx-Aliyun-AP4220.elf` | 0x9000010 | ✓ | `./build.sh ipq40xx_aliyun_ap4220` |
@@ -32,6 +34,7 @@
 | IPQ5332 | `ipq5332_xiaomi_be6500` | Xiaomi BE6500 (RN02) | `IPQ5332-Xiaomi-BE6500.mbn` | 0x8060001 | ✓ | `./build.sh ipq5332_xiaomi_be6500` |
 | IPQ5332 | `ipq5332_xiaomi_be3600_pro_wired_5ports` | Xiaomi BE3600 Pro Wired 5-Ports | `IPQ5332-Xiaomi-BE3600-Pro-5Ports.mbn` | 0x8060004 | ? | `./build.sh ipq5332_xiaomi_be3600_pro_wired_5ports` |
 | IPQ5332 | `ipq5332_xiaomi_be3600_pro_wired_8ports` | Xiaomi BE3600 Pro Wired 8-Ports | `IPQ5332-Xiaomi-BE3600-Pro-8Ports.mbn` | 0x8060004 | ? | `./build.sh ipq5332_xiaomi_be3600_pro_wired_8ports` |
+| IPQ5332 | `ipq5332_xiaomi_be3600_pro_md16` | Xiaomi BE3600 Pro MD16 | `IPQ5332-Xiaomi-BE3600-Pro-MD16.mbn` | 0x8060004 | ? | `./build.sh ipq5332_xiaomi_be3600_pro_md16` |
 | IPQ5332 | `ipq5332_tiny` | QCA Tiny Common | `IPQ5332-QCA-Tiny.mbn` | --- | ✓ | `./build.sh ipq5332_tiny` |
 | IPQ5332 | `ipq5332_tiny_nor` | QCA Tiny NOR Common | `IPQ5332-QCA-Tiny-NOR.mbn` | --- | ✓ | `./build.sh ipq5332_tiny_nor` |
 | IPQ5332 | `ipq5332_tiny_debug` | QCA Tiny Debug Common | `IPQ5332-QCA-Tiny-Debug.mbn` | --- | ✓ | `./build.sh ipq5332_tiny_debug` |

@@ -138,4 +138,12 @@ config IPQ5332_XIAOMI_BE3600_PRO_WIRED_8PORTS
 	default n
 	help
 		Enable support for IPQ5332_XIAOMI_BE3600_PRO_WIRED_8PORTS (Dual RTL8372N) support
+
+config IPQ5332_XIAOMI_BE3600_PRO_MD16
+	bool "Xiaomi BE3600 Pro MD16 support"
+	select YT921X_SWITCH
+	default n
+	help
+		Enable the MD16 board profile (YT9215 switch and YT8821 PHY).
+		The YT921X switch requires hardware initialization validation.
 endif
