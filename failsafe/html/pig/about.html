@@ -161,6 +161,16 @@
 		['U-Boot版本', 'version']
 	];
 
+	function saveEnvSetting(body) {
+		xhrPost('/env_set', body, function(result) {
+			if (result !== 'ok') {
+				alert('设置未保存。请检查连接和串口日志。');
+				return;
+			}
+			loadAbout();
+		});
+	}
+
 	function loadAbout() {
 		var infoTbody = document.getElementById('info-tbody');
 		infoTbody.innerHTML = '';
@@ -192,12 +202,12 @@
 				if (key === 'config_name' && data.config_name_source) {
 					td.className = 'about-gpio-ops';
 					if (data.config_name_source === 'env') {
-						addBtn(td, '恢复').onclick = function() { xhrPost('/env_set', 'config_name=', function() { loadAbout(); }); };
+						addBtn(td, '恢复').onclick = function() { saveEnvSetting('config_name='); };
 					} else if (data.config_name_source === 'fdt') {
 						addBtn(td, '修改').onclick = function() {
 							var v = prompt('输入 config_name 值 (如 config@xxx):');
 							if (v !== null && v !== '')
-								xhrPost('/env_set', 'config_name=' + encodeURIComponent(v), function() { loadAbout(); });
+								saveEnvSetting('config_name=' + encodeURIComponent(v));
 						};
 					}
 				}
@@ -239,7 +249,7 @@
 			gpioTbody.querySelectorAll('[data-override]').forEach(function(btn) {
 				btn.onclick = function() {
 					var key = this.getAttribute('data-override');
-					xhrPost('/env_set', encodeURIComponent(key) + '=', function() { loadAbout(); });
+					saveEnvSetting(encodeURIComponent(key) + '=');
 				};
 			});
 			gpioTbody.querySelectorAll('[data-modify]').forEach(function(btn) {
@@ -247,7 +257,7 @@
 					var key = this.getAttribute('data-modify'),
 					    val = prompt('输入 ' + key + ' 的 GPIO 编号:');
 					if (val !== null && val !== '')
-						xhrPost('/env_set', encodeURIComponent(key) + '=' + encodeURIComponent(val), function() { loadAbout(); });
+						saveEnvSetting(encodeURIComponent(key) + '=' + encodeURIComponent(val));
 				};
 			});
 			var detectBtn = document.getElementById('gpio-detect-btn');

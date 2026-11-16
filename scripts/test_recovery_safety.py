@@ -42,10 +42,12 @@ require("ret = saveenv();" in env and "setenv(name, saved);" in env and "persist
 
 require("isBackupPartition(" not in about and "sessionStorage.getItem('flash_backup')" in about,
         "Unsafe inferred backup partition detection remains")
-require("sessionStorage.getItem('flash_backup')" in upload and "每次" not in upload or
-        "getFlashBackupPref()" in upload, "Manual backup opt-in mismatch")
+require("sessionStorage.getItem('flash_backup')" in upload,
+        "Manual backup opt-in mismatch")
 require("getFlashBackupPref() === '1'" in upload and "confirm(" in upload,
         "Backup write must require per-upload confirmation")
+require("function saveEnvSetting(body)" in about and "result !== 'ok'" in about,
+        "Browser must report failed environment persistence")
 require("FW_TYPE_FIT" in httpd, "FIT-only firmware check missing")
 selector = source("failsafe/html/pig/update.html")
 require(".zImage" not in selector and ".uImage" not in selector,
