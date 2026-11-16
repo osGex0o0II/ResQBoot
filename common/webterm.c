@@ -33,6 +33,7 @@ volatile int webterm_abort_requested = 0;
 
 static char webterm_response_buf[WEBTERM_RESPONSE_SIZE];
 static char webterm_output_buf[WEBTERM_BUFFER_SIZE];
+static int webterm_command_enabled = 0;
 
 static void webterm_batch_copy(const char *src, int len);
 static void webterm_flush_line(void);
@@ -56,6 +57,15 @@ int webterm_init(void) {
 	webterm_line_pos = 0;
 
 	return 0;
+}
+
+void webterm_set_command_enabled(int enabled) {
+	webterm_command_enabled = enabled ? 1 : 0;
+	if (!webterm_command_enabled) {
+		webterm_has_pending_cmd = 0;
+		webterm_pending_cmd[0] = '\0';
+		webterm_abort_requested = 0;
+	}
 }
 
 void webterm_reset(void) {
@@ -179,7 +189,8 @@ int webterm_run_pending_command(void) {
 static void webterm_respond(struct failsafe_httpd_state *hs, int code, const char *ctype, const char *fmt, ...) {
 	va_list ap;
 	int hlen = snprintf(webterm_response_buf, sizeof(webterm_response_buf),
-		"HTTP/1.1 %d %s\r\nContent-Type: %s\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n", code, code == 200 ? "OK" : "405", ctype);
+		"HTTP/1.1 %d %s\r\nContent-Type: %s\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n", code,
+		code == 200 ? "OK" : code == 403 ? "Forbidden" : code == 400 ? "Bad Request" : "Method Not Allowed", ctype);
 	va_start(ap, fmt);
 	hlen += vsnprintf(webterm_response_buf + hlen, sizeof(webterm_response_buf) - hlen, fmt, ap);
 	va_end(ap);
@@ -211,6 +222,16 @@ static int webterm_parse_post_body(char *data, int data_len, char *out, int out_
 	return body_len;
 }
 
+/* This header blocks simple cross-site browser POSTs, not LAN clients.
+ * Recovery HTTP is plaintext and does not authenticate the sender.
+ */
+static int webterm_post_is_from_ui(const char *data) {
+	const char *end = strstr(data, "\r\n\r\n");
+	const char *header = strstr(data, "\r\nX-ResQBoot-Request: 1\r\n");
+
+	return end && header && header < end;
+}
+
 void webterm_http_handler(struct failsafe_httpd_state *hs, char *data, int data_len) {
 	const char *path;
 	int is_post, len, since;
@@ -231,6 +252,21 @@ void webterm_http_handler(struct failsafe_httpd_state *hs, char *data, int data_
 	if (strncmp(path, "/webterm/", 9) != 0)
 		return;
 	path += 9;
+
+	if (is_post && !webterm_post_is_from_ui(data)) {
+		webterm_respond(hs, 403, "text/plain", "Missing trusted-request header\n");
+		return;
+	}
+
+	/* Preserve the recovery UI's reboot control, not arbitrary commands. */
+	if (!webterm_command_enabled &&
+	    !(is_post && strcmp(path, "cmd") == 0 &&
+	      webterm_parse_post_body(data, data_len, cmd, sizeof(cmd)) > 0 &&
+	      strcmp(cmd, "reset") == 0)) {
+		webterm_respond(hs, 403, "text/plain",
+				"Command terminal disabled. Use 'httpd t' from serial console.\n");
+		return;
+	}
 
 	if (strncmp(path, "cmd", 3) == 0) {
 		if (is_post) {
