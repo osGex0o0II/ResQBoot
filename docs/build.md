@@ -1,27 +1,25 @@
 # 构建指南
 
-本文说明如何在本地构建 ResQBoot。
+## 环境
 
-## 系统要求
-
-推荐使用 Ubuntu 20.04 LTS 或更新版本。
+CI 当前使用 Ubuntu 26.04、Node.js 24 和 Python 3。其他 Linux 环境尚未全面验证；校验脚本要求 Python 3.9 或更新版本。
 
 安装构建依赖：
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev python3 wget cpio flex bison bc rsync nodejs npm gzip zopfli device-tree-compiler
+sudo apt-get install -y build-essential libncurses5-dev gawk git gettext libssl-dev python3 wget cpio flex bison bc rsync zopfli device-tree-compiler
 ```
 
-安装 `makefsdatac` 处理 Web 页面时需要的压缩工具：
+另行安装 Node.js 24（含 npm），然后安装 Web 资源压缩工具：
 
 ```bash
-sudo npm install -g html-minifier-terser clean-css terser svgo
+npm install -g html-minifier-terser clean-css terser svgo
 ```
 
-## 源码和工具链
+## 源码与工具链
 
-将本仓库和工具链克隆到同一级目录：
+将仓库和交叉编译工具链放在同一级目录：
 
 ```bash
 git clone https://github.com/osGex0o0II/ResQBoot.git
@@ -29,70 +27,32 @@ git clone https://github.com/1980490718/toolchain-arm_cortex-a7_gcc-5.2.0.git st
 cd ResQBoot
 ```
 
-构建脚本默认使用以下环境：
+`build.sh` 自动设置 `ARCH=arm`、`CROSS_COMPILE=arm-openwrt-linux-` 和 `STAGING_DIR=../staging_dir/`。
 
-```text
-STAGING_DIR=../staging_dir/
-CROSS_COMPILE=arm-openwrt-linux-
-ARCH=arm
-```
+## 构建
 
-这些值会由构建脚本自动设置。
-
-## 构建命令
-
-构建某个平台的全部设备：
+构建平台内全部配置：
 
 ```bash
 ./build.sh ipq6018
 ```
 
-构建单个设备配置：
+构建指定配置：
 
 ```bash
 ./build.sh ipq6018_jdcloud_ax6600
 ```
 
-深度清理生成文件：
+清理构建中间文件使用 `./build.sh clean`；清理输出文件使用 `./build.sh clean_all`。清理命令会删除生成文件，请勿在含有未备份产物的工作目录中执行。
 
-```bash
-./build.sh clean
-```
+输出文件位于 `bin/`：IPQ40xx、IPQ806x 使用 `.elf`，其余 IPQ 平台使用 `.mbn`。正式发布时，CI 按 [设备索引](devices.md) 中的命名规则整理资产。
 
-仅清理输出文件：
+## 常见问题
 
-```bash
-./build.sh clean_all
-```
+若出现 `failsafe/fsdata.c: No such file or directory`，检查 Node.js、npm 和上述四个压缩工具是否安装且可执行。
 
-## 输出文件
+## 自动构建
 
-- `IPQ40xx` 和 `IPQ806x`：`bin/*.elf`
-- 其它 IPQ 平台：`bin/*.mbn`
+GitHub Actions 在推送、Pull Request 或手动触发时执行构建。只有 `main` 分支的推送，或手动选择全部平台构建成功后，才会发布按日期命名的 Release。
 
-CI 会将 Release 资产重命名为 [devices.md](devices.md) 中展示的短英文文件名，方便搜索和下载。
-
-## 常见错误
-
-如果出现类似错误：
-
-```text
-failsafe/fsdata.c: No such file or directory
-```
-
-请检查是否已经安装 Node.js 以及以下 npm 包：
-
-```bash
-html-minifier-terser clean-css terser svgo
-```
-
-## CI 构建
-
-每次推送到 `main` 时，GitHub Actions 会构建全部 IPQ 平台，并创建当天的 Release 标签，例如 `v2026-06-24`。
-
-Release 任务会：
-
-- 下载各平台构建产物；
-- 根据 `docs/devices.csv` 准备短英文资产名；
-- 将设备资产索引写入 Release 说明；
-- 上传新资产前删除同一天已有的 Release 标签。
+Release 包含编译产物与 `SHA256SUMS`；CI 验证不能替代实际设备的启动、刷写和恢复测试。
