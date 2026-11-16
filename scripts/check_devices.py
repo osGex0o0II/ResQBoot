@@ -188,9 +188,28 @@ def validate_readme_links(errors: list[str]) -> None:
         return
 
     text = README.read_text(encoding="utf-8", errors="replace")
+    if '<h1 align="center">ResQBoot</h1>' not in text:
+        error(errors, "README.md title must remain centered")
+
     for link in ("docs/devices.md", "docs/build.md", "docs/recovery.md", "releases/latest"):
         if link not in text:
             error(errors, f"README.md is missing link/reference to {link}")
+
+
+def validate_document_links(errors: list[str]) -> None:
+    for relative in ("README.md", "docs/devices.md", "docs/build.md", "docs/recovery.md"):
+        path = ROOT / relative
+        if not path.is_file():
+            error(errors, f"Missing {relative}")
+            continue
+
+        source = path.read_text(encoding="utf-8", errors="replace")
+        for target in re.findall(r"\[[^\]]+\]\(([^)\s]+)\)", source):
+            if target.startswith(("#", "http://", "https://", "mailto:")):
+                continue
+            local = target.split("#", 1)[0].split("?", 1)[0]
+            if local and not (path.parent / local).is_file():
+                error(errors, f"{relative}: broken local link {target}")
 
 
 def validate_device_docs(devices: list[dict[str, str]], errors: list[str]) -> None:
@@ -269,6 +288,7 @@ def main() -> int:
     if devices:
         validate_defconfigs(devices, errors)
         validate_readme_links(errors)
+        validate_document_links(errors)
         validate_device_docs(devices, errors)
         validate_dts(devices, errors)
 
@@ -278,7 +298,7 @@ def main() -> int:
             print(f"  - {item}")
         return 1
 
-    print(f"Device metadata check passed ({len(devices)} devices).")
+    print(f"Device metadata check passed ({len(devices)} build configurations).")
     return 0
 
 
