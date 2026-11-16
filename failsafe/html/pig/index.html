@@ -3,7 +3,7 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>U-BOOT控制台</title>
+	<title>ResQBoot Web 恢复</title>
 	<script src="common.js?v=f"></script>
 	<link rel="stylesheet" href="style.css?v=f">
 </head>
@@ -11,11 +11,11 @@
 	<div class="main-container">
 		<aside class="sidebar">
 			<ul class="sidebar-nav">
-				<li class="sidebar-nav-item active"><a href="update.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-upload"/></svg>更新启动</a></li>
+				<li class="sidebar-nav-item active"><a href="update.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-upload"/></svg>固件与启动</a></li>
 				<li class="sidebar-nav-item"><a href="backup.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-download"/></svg>备份分区</a></li>
 				<li class="sidebar-nav-item"><a href="img.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-cpu"/></svg>编程模式</a></li>
-				<li class="sidebar-nav-item"><a href="term.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-terminal"/></svg>终端变量</a></li>
-				<li class="sidebar-nav-item"><a href="about.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-router"/></svg>关于设置</a></li>
+				<li class="sidebar-nav-item"><a href="term.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-terminal"/></svg>命令终端</a></li>
+				<li class="sidebar-nav-item"><a href="about.html" target="content-frame"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-router"/></svg>设备与设置</a></li>
 				<li class="sidebar-nav-item"><a href="javascript:void(0)" id="rebootBtn"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-refresh"/></svg>重启设备</a></li>
 			</ul>
 			<div class="theme-switch">主题 | <span id="themeSwitch">亮☀</span></div>
@@ -102,7 +102,7 @@
 			xhrGet('/about', function(data) {
 				var el = document.getElementById('uboot-version');
 				if (el && data && data.version)
-					el.textContent = 'Version: ' + data.version;
+					el.textContent = 'U-Boot 版本：' + data.version;
 			});
 		})();
 	</script>

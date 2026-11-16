@@ -23,8 +23,6 @@ static dhcpd_state_t dhcpd_state = DHCPD_STATE_STOPPED;
 static rxhand_f *original_udp_handler = NULL;
 
 /* DHCP magic cookie as defined in RFC 2131 */
-
-/* DHCP magic cookie as defined in RFC 2131 */
 static const uint8_t dhcp_magic_cookie[4] = { 99, 130, 83, 99 };
 
 /**

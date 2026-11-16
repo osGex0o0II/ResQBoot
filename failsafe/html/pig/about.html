@@ -3,14 +3,14 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>关于设置</title>
+	<title>设备与设置</title>
 	<script src="common.js?v=f"></script>
 	<link rel="stylesheet" href="style.css?v=f">
 </head>
 <body class="iframe-content">
 	<script>if(window.self!==window.top)document.body.classList.add('in-frame')</script>
 	<div class="card about-card">
-		<h2 class="has-tabs"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-router"/></svg><span id="about-title">关于设置</span><span class="tab-indicator" id="tab-indicator"></span></h2>
+		<h2 class="has-tabs"><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-router"/></svg><span id="about-title">设备与设置</span><span class="tab-indicator" id="tab-indicator"></span></h2>
 
 		<!-- 标签页导航 -->
 		<div class="tab-nav">
@@ -35,7 +35,7 @@
 			<div class="tab-content" id="tab-gpio">
 				<div class="about-section">
 					<table class="about-table" id="gpio-table">
-						<thead><tr><th>名称</th><th>映射</th><th>GPIO</th><th>方向</th><th>当前值</th><th>电平</th><th>父系</th><th>来源</th><th>覆盖</th><th><span class="about-gpio-ops">操作 <button class="about-sm-btn" id="gpio-detect-btn">探测按键</button></span></th></tr></thead>
+						<thead><tr><th>名称</th><th>映射</th><th>GPIO</th><th>方向</th><th>当前值</th><th>电平</th><th>父节点</th><th>来源</th><th>覆盖</th><th><span class="about-gpio-ops">操作 <button class="about-sm-btn" id="gpio-detect-btn">探测按键</button></span></th></tr></thead>
 						<tbody id="gpio-tbody"></tbody>
 					</table>
 				</div>
@@ -435,7 +435,7 @@
 		tbody.appendChild(tr);
 		var applyState = function(en, tx) { chk.disabled = !en; lbl.textContent = tx; };
 		var setLs = function(v) { try { localStorage.setItem('flash_backup', v); } catch (e) {} };
-		var stateText = function() { return chk.checked ? '已启用·主备同刷' : '已关闭·仅主分区'; };
+		var stateText = function() { return chk.checked ? '已开启·尝试更新备分区' : '已关闭·不请求备分区'; };
 		var storageOk = true;
 		try { chk.checked = localStorage.getItem('flash_backup') === '1'; }
 		catch (e) { storageOk = false; chk.checked = false; }
@@ -505,8 +505,8 @@
 			content.classList.toggle('active', content.id === 'tab-' + tabName);
 		});
 
-		titleEl.textContent = tabTitles[tabName] || '关于设置';
-		document.title = tabTitles[tabName] || '关于设置';
+		titleEl.textContent = tabTitles[tabName] || '设备与设置';
+		document.title = tabTitles[tabName] || '设备与设置';
 
 		if (tabName === 'mac' && !macLoaded) {
 			macLoaded = true;

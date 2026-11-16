@@ -52,7 +52,7 @@
 			},
 			art: {
 				name: 'ART', icon: 'icon-wifi',
-				note: '(Atheros无线芯片的频率校正数据)',
+				note: '（无线校准及设备数据；不同机型的 ART 内容可能不同）',
 				accept: '.art,.ART,art.*,ART.*'
 			},
 			cdt: {
@@ -64,7 +64,7 @@
 			},
 			ptable: {
 				name: 'GPT/MIBIB', icon: 'icon-storage',
-				desc: '将更新此设备的<b>PARTITION TABLE</b>(GPT/MIBIB)。<br>EMMC选<b>GPT</b>，NOR/NAND选<b>MIBIB</b>，请选择要更新的<b>分区表文件</b>并点击<b>确认</b>按钮。',
+				desc: '将更新设备的<b>分区表</b>（GPT/MIBIB）。<br>请根据实际闪存与分区布局选择对应镜像；使用错误的分区表可能导致设备无法启动。',
 				label: '请选择<b>GPT/MIBIB文件</b>',
 				accept: '.gpt,.GPT,.mibib,.MIBIB',
 				danger: true,
@@ -77,13 +77,13 @@
 			initramfs: {
 				name: 'INITRAMFS', icon: 'icon-rocket',
 				title: '内存启动',
-				desc: '将从内存中运行<b>INITRAMFS系统</b>。<br>选择适合本设备启动的<b>initramfs文件</b>并点击<b>确认</b>按钮。',
-				label: '请选择<b>INITRAMFS文件</b>',
-				fullAccept: '.itb,.uImage,.zImage',
+				desc: '将尝试从内存启动<b>FIT 格式的 initramfs 镜像</b>。<br>请使用与设备匹配的镜像；文件扩展名不代表镜像格式。',
+				label: '选择<b>FIT 镜像文件</b>',
+				fullAccept: '.itb,.ITB,.fit,.FIT,.bin,.BIN,.img,.IMG,.uImage,.UIMAGE',
 				tips: [
-					'请确认所选的initramfs文件是正确的；',
-					'运行内存系统不影响闪存中的数据；',
-					'可以断开电源终止启动。'
+					'仅支持 FIT 镜像，需确认与设备兼容；',
+					'U-Boot 的内存启动操作不主动刷写闪存，但启动后的系统仍可能修改存储；',
+					'请正常关机，避免在系统写入存储时断电。'
 				]
 			}
 		};

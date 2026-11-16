@@ -24,7 +24,7 @@
 		<div class="button-container"><button id="backup-btn" disabled>确认</button></div>
 		<div class="tips">
 			<ul>
-				<li class="backup-tip">rootfs分区可能读取及下载时间较长；</li>
+				<li class="backup-tip">rootfs 等大分区的读取和下载可能耗时较长；</li>
 				<li class="backup-tip">因内存限制，部分分区可能无法完成；</li>
 				<li class="backup-tip">备份过程中请勿操作其他功能、刷新页面或断开连接。</li>
 				<li id="backup-progress" style="display:none;list-style:none"></li>
@@ -95,7 +95,7 @@ dlBtn.onclick=function(){
 	if(idx<0||idx>=partsData.length)return;
 	var p=partsData[idx];
 	if(p.name==='nand_full'&&!p.raw){
-		if(!confirm('不备份OOB可能破坏数据的完整性，建议使用nand_full_OOB模式。是否继续？')) return;
+		if(!confirm('此备份不含 NAND OOB 带外数据，不能直接替代完整的原始芯片备份。是否继续？')) return;
 	}
 	var name=p.name;
 	var raw=!!p.raw;
@@ -145,7 +145,7 @@ dlBtn.onclick=function(){
 			document.body.removeChild(a);
 			URL.revokeObjectURL(url);
 		} else {
-			var msg='下载失败。若为 NAND 分区且存在坏块，请改用 nand_full_OOB 原始备份；详细地址见串口。';
+			var msg='备份失败。请检查串口日志与存储状态；NAND 全盘原始备份可尝试带 OOB 模式。';
 			var blob=xhr.response;
 			if(blob&&window.FileReader){
 				var fr=new FileReader();

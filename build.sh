@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Set cross-compile toolchain path (one level up from staging_dir)
+# Use the cross-compiler toolchain in staging_dir next to this repository.
 export ARCH=arm
 export PATH=$(realpath .)/../staging_dir/toolchain-arm_cortex-a7_gcc-5.2.0_musl-1.1.16_eabi/bin:$PATH
 #export PATH=$(realpath .)/../openwrt-sdk-ipq807x-2102/staging_dir/toolchain-arm_cortex-a7_gcc-5.5.0_musl_eabi/bin:$PATH
@@ -80,14 +80,14 @@ if [ $# -gt 0 ]; then
 	# Then check for valid cleanup commands
 	if [ "$1" = "clean_all" ]; then
 		echo "Delete old u-boot files"
-		# Remove all possible output files
+		# Remove IPQ U-Boot binaries from bin/
 		rm -f bin/openwrt-ipq*
 exit 0
 	elif [ "$1" = "clean" ]; then
 		echo "Delete old u-boot files"
-		# Remove all possible output files
+		# Remove IPQ U-Boot binaries from bin/
 		rm -f bin/openwrt-ipq*
-echo "Deep clean by .gitignore rules"
+echo "Delete files matching recursive cleanup patterns"
 		find . -type f \
 			\( \
 				-name '.*.cmd' -o \
