@@ -94,8 +94,13 @@
 
 			document.getElementById('rebootBtn').addEventListener('click', function () {
 				if (confirm('确认重启？')) {
-					fetch('/webterm/cmd', {method:'POST',headers:{'Content-Type':'text/plain'},body:'reset'});
-					try{frame.contentWindow.showStep(3,'设备重启中...',3);frame.contentWindow.pingDevice(3)}catch(e){frame.src='update.html#reboot'}
+					fetch('/webterm/cmd', {method:'POST',headers:{'Content-Type':'text/plain','X-ResQBoot-Request':'1'},body:'reset'})
+						.then(function(r) {
+							if (!r.ok) throw new Error('请求被拒绝');
+							try { frame.contentWindow.showStep(3,'设备重启中...',3);frame.contentWindow.pingDevice(3); }
+							catch(e) { frame.src='update.html#reboot'; }
+						})
+						.catch(function() { alert('未收到重启确认，请检查设备是否正在重启。'); });
 				}
 			});
 

@@ -43,7 +43,7 @@ cd ResQBoot
 ./build.sh ipq6018_jdcloud_ax6600
 ```
 
-`./build.sh clean` 递归删除匹配清理规则的文件（包括 `*.bin`、`*.elf`、`*.patch`）及 `bin/openwrt-ipq*`；`./build.sh clean_all` 仅删除 `bin/openwrt-ipq*`。执行 `clean` 前，请确认其他匹配文件已备份。
+`./build.sh clean` 清理编译对象、已知中间文件和 `bin/openwrt-ipq*` 产物；`./build.sh clean_all` 仅清理后者。清理不会递归删除其他 `.bin`、`.elf` 或 `.patch` 文件；建议先备份重要的构建产物。
 
 编译产物位于 `bin/`。IPQ40xx、IPQ806x 输出 `.elf`，其他 IPQ 平台输出 `.mbn`；发布资产按 [设备索引](devices.md) 统一命名。
 

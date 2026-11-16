@@ -1285,9 +1285,33 @@ static void httpd_handle_btn_detect(struct failsafe_httpd_state *hs) {
 	httpd_send_static(hs, resp, len);
 }
 
+/* Restore the old runtime value if persisting a new setting fails. */
+static int httpd_persist_env_value(const char *name, const char *value)
+{
+	const char *old = getenv(name);
+	char *saved = NULL;
+	int ret;
+
+	if (old) {
+		saved = malloc(strlen(old) + 1);
+		if (!saved)
+			return -1;
+		strcpy(saved, old);
+	}
+
+	ret = setenv(name, value);
+	if (!ret) {
+		ret = saveenv();
+		if (ret)
+			setenv(name, saved);
+	}
+	free(saved);
+	return ret;
+}
+
 static void httpd_handle_env_set(struct failsafe_httpd_state *hs, char *data, int data_len) {
 	static char resp[128];
-	int len, ok = 0, bad = 0;
+	int len, ok = 0, bad = 0, persist_error = 0;
 	char *body = strstr(data, "\r\n\r\n");
 
 	if (body) {
@@ -1336,16 +1360,20 @@ static void httpd_handle_env_set(struct failsafe_httpd_state *hs, char *data, in
 						if (!valid) {
 							bad = 1;
 						} else {
-							setenv(name, value);
-							saveenv();
-							env_reset_gpio_invalidate();
-							ok = 1;
+							if (!httpd_persist_env_value(name, value)) {
+								env_reset_gpio_invalidate();
+								ok = 1;
+							} else {
+								persist_error = 1;
+							}
 						}
 					} else {
-						setenv(name, NULL);
-						saveenv();
-						env_reset_gpio_invalidate();
-						ok = 1;
+						if (!httpd_persist_env_value(name, NULL)) {
+							env_reset_gpio_invalidate();
+							ok = 1;
+						} else {
+							persist_error = 1;
+						}
 					}
 				} else if (strcmp(name, "config_name") == 0) {
 					int i, valid = 1;
@@ -1361,10 +1389,13 @@ static void httpd_handle_env_set(struct failsafe_httpd_state *hs, char *data, in
 					if (!valid) {
 						bad = 1;
 					} else {
-						setenv(name, value[0] ? value : NULL);
-						saveenv();
-						ok = 1;
+						if (!httpd_persist_env_value(name, value[0] ? value : NULL))
+							ok = 1;
+						else
+							persist_error = 1;
 					}
+				} else {
+					bad = 1;
 				}
 			}
 		} else {
@@ -1375,7 +1406,8 @@ static void httpd_handle_env_set(struct failsafe_httpd_state *hs, char *data, in
 	}
 
 	len = sprintf(resp, "HTTP/1.0 %s\r\nCache-Control: no-cache\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n%s",
-		      bad ? "400 Bad Request" : "200 OK", bad ? "bad request" : (ok ? "ok" : "error"));
+		      bad ? "400 Bad Request" : persist_error ? "500 Internal Server Error" : "200 OK",
+		      bad ? "bad request" : persist_error ? "persist failed" : (ok ? "ok" : "error"));
 	httpd_send_static(hs, resp, len);
 }
 

@@ -44,6 +44,12 @@ jobs:
           echo "Current timezone: $(timedatectl show -p Timezone --value)"
           echo "Current time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 
+      - name: Test safe build cleanup
+        run: python3 scripts/test_clean_safety.py
+
+      - name: Test recovery security and browser scripts
+        run: python3 scripts/test_recovery_safety.py
+
       - name: Check device metadata
         run: python3 scripts/check_devices.py
 
@@ -62,7 +68,17 @@ jobs:
 
       - name: Clone cross-compiler toolchain
         run: |
-          git clone --depth=1 ${{ env.TOOLCHAIN }} ../staging_dir
+          for attempt in 1 2 3 4; do
+            rm -rf ../staging_dir
+            if git -c http.version=HTTP/1.1 clone --depth=1 "${{ env.TOOLCHAIN }}" ../staging_dir; then
+              break
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              echo "Toolchain download failed after four attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
           echo "Clone Toolchain to staging_dir"
           ls -la ../staging_dir/
           if [ -d "../staging_dir/toolchain-arm_cortex-a7_gcc-5.2.0_musl-1.1.16_eabi/bin" ]; then

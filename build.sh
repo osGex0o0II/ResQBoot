@@ -84,68 +84,30 @@ if [ $# -gt 0 ]; then
 		rm -f bin/openwrt-ipq*
 exit 0
 	elif [ "$1" = "clean" ]; then
-		echo "Delete old u-boot files"
-		# Remove IPQ U-Boot binaries from bin/
+		# Only remove known build intermediates; preserve user images/patches.
+		echo "Delete generated U-Boot objects and output images"
 		rm -f bin/openwrt-ipq*
-echo "Delete files matching recursive cleanup patterns"
 		find . -type f \
-			\( \
-				-name '.*.cmd' -o \
-				-name '.*.tmp' -o \
-				-name '*.o' -o \
-				-name '*.o.*' -o \
-				-name '*.a' -o \
-				-name '*.s' -o \
-				-name '*.su' -o \
-				-name '*.mod.c' -o \
-				-name '*.i' -o \
-				-name '*.lst' -o \
-				-name '*.order' -o \
-				-name '*.elf' -o \
-				-name '*.swp' -o \
-				-name '*.bin' -o \
-				-name '*.patch' -o \
-				-name '*.cfgtmp' -o \
-				-name '*.exe' -o \
-				-name 'MLO*' -o \
-				-name 'SPL' -o \
-				-name 'System.map' -o \
-				-name 'LOG' -o \
-				-name '*.orig' -o \
-				-name '*~' -o \
-				-name '#*#' -o \
-				-name 'cscope.*' -o \
-				-name 'tags' -o \
-				-name 'ctags' -o \
-				-name 'etags' -o \
-				-name 'GPATH' -o \
-				-name 'GRTAGS' -o \
-				-name 'GSYMS' -o \
-				-name 'GTAGS' \
-			\) -delete
-		rm -rf \
-			.stgit-edit.txt \
-			.gdb_history \
-			.u-boot.* \
-			combined_dtb.lds \
-			dtb_combined \
-			dtb_combined.bin.gz \
-			dtb_combined.map \
+			\( -name '.*.cmd' -o -name '.*.tmp' \
+				-o -name '*.o' -o -name '*.o.*' \
+				-o -name '*.a' -o -name '*.su' \
+				-o -name '*.mod.c' -o -name '*.lst' \
+				-o -name '*.order' -o -name '*.cfgtmp' \) \
+			! -path './.git/*' ! -path './docs/*' \
+			! -path './.github/*' ! -path './patches/*' -delete
+		rm -f \
+			combined_dtb.lds dtb_combined.bin.gz dtb_combined.map \
 			arch/arm/dts/dtbtable.S \
 			arch/arm/dts/compressed_dtb/dtbcombined.S \
-			failsafe/fsdata.c \
-			failsafe/html/debug_output \
-			tools/mbn_tools.pyc \
-			u-boot* \
-			tools/gen_eth_addr \
-			tools/img2srec \
-			tools/proftool \
-			tools/fdtgrep \
-			tools/envcrc \
-			tools/dumpimage \
-			scripts/kconfig/conf \
-			scripts/basic/fixdep
-exit 0
+			failsafe/fsdata.c tools/mbn_tools.pyc \
+			u-boot u-boot.bin u-boot.img u-boot.map \
+			u-boot.elf u-boot.lds u-boot.srec u-boot.cfg \
+			u-boot-nodtb.bin u-boot-dtb.bin \
+			tools/gen_eth_addr tools/img2srec tools/proftool \
+			tools/fdtgrep tools/envcrc tools/dumpimage \
+			scripts/kconfig/conf scripts/basic/fixdep
+		rm -rf dtb_combined failsafe/html/debug_output
+		exit 0
 	fi
 fi
 

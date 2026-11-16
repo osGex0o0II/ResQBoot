@@ -7,6 +7,7 @@
 #include <common.h>
 #include <command.h>
 #include <net.h>
+#include <webterm.h>
 #include <asm/byteorder.h>
 #include "httpd.h"
 #include "../failsafe/failsafe_httpd.h"
@@ -93,13 +94,10 @@ static void httpd_make_serverip(const unsigned int octets[4], char *serverip)
 	sprintf(serverip, "%u.%u.%u.%u", octets[0], octets[1], octets[2], host);
 }
 
-static void httpd_set_recovery_network(const char *ipaddr, const char *serverip,
+/* Recovery addresses are runtime-only; never mutate the saved environment. */
+static void httpd_set_recovery_network(const char *serverip,
 				       struct in_addr httpd_ip)
 {
-	setenv("ipaddr", ipaddr);
-	setenv("serverip", serverip);
-	setenv("netmask", HTTPD_RECOVERY_NETMASK);
-	setenv("gatewayip", NULL);
 	net_httpd_ip = httpd_ip;
 	net_copy_ip(&net_ip, &net_httpd_ip);
 	net_gateway.s_addr = 0;
@@ -148,14 +146,18 @@ static void reset_webfailsafe_state(void) {
 }
 
 void HttpdStop(void) {
+	webterm_set_command_enabled(0);
 	failsafe_httpd_stop();
 #ifdef CONFIG_DHCPD
 	dhcpd_deinit_server();
 #endif
+	net_httpd_ip.s_addr = 0;
 	reset_webfailsafe_state();
 }
 
 void HttpdDone(void) {
+	webterm_set_command_enabled(0);
+	net_httpd_ip.s_addr = 0;
 	reset_webfailsafe_state();
 	do_http_progress(WEBFAILSAFE_PROGRESS_UPGRADE_READY);
 }
@@ -888,6 +890,9 @@ int do_http_progress(const int state) {
 }
 
 int do_httpd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]) {
+	int allow_terminal = 0;
+	int ip_index = 1;
+
 	if (argc >= 2 && !strcmp(argv[1], "s")) {
 		if (webfailsafe_is_running) {
 			HttpdStop();
@@ -899,32 +904,44 @@ int do_httpd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]) {
 	}
 
 	if (webfailsafe_is_running) {
-		printf("HTTP already running\n");
+		printf("HTTP already running. Stop with 'httpd s' before changing terminal access.\n");
 		return CMD_RET_SUCCESS;
 	}
 
-	if (argc >= 2) {
+	if (argc >= 2 && !strcmp(argv[1], "t")) {
+		allow_terminal = 1;
+		ip_index = 2;
+	}
+	if (argc > ip_index + 1)
+		return CMD_RET_USAGE;
+
+	if (argc > ip_index) {
 		struct in_addr custom_ip;
 		unsigned int octets[4];
 		char serverip[16];
 
-		if (httpd_parse_ipv4(argv[1], octets, &custom_ip) < 0)
+		if (httpd_parse_ipv4(argv[ip_index], octets, &custom_ip) < 0)
 			return CMD_RET_USAGE;
 
 		httpd_make_serverip(octets, serverip);
-		httpd_set_recovery_network(argv[1], serverip, custom_ip);
+		httpd_set_recovery_network(serverip, custom_ip);
 	} else {
-		httpd_set_recovery_network(HTTPD_RECOVERY_IP,
-					   HTTPD_RECOVERY_SERVERIP,
+		httpd_set_recovery_network(HTTPD_RECOVERY_SERVERIP,
 					   string_to_ip(HTTPD_RECOVERY_IP));
 	}
+
+	webterm_set_command_enabled(allow_terminal);
+	if (allow_terminal)
+		printf("WARNING: Web terminal enabled for this HTTP session. "
+		       "Use only on an isolated trusted network; HTTP is plaintext.\n");
 	HttpdStart();
 	return CMD_RET_SUCCESS;
 }
 
 U_BOOT_CMD(
-	httpd, 2, 1, do_httpd,
+	httpd, 3, 1, do_httpd,
 	"HTTP recovery server",
-	"[ipaddr] - start HTTP recovery server\n"
+	"[ipaddr] - start HTTP recovery server (command terminal locked)\n"
+	"  t [ipaddr] - unlock command terminal for this session (serial console only)\n"
 	"  s - stop\n"
 );

@@ -18,6 +18,9 @@ int webterm_get_output(char *buf, int size, int since);
 
 void webterm_reset(void);
 
+/* Unrestricted commands require explicit serial-console opt-in. */
+void webterm_set_command_enabled(int enabled);
+
 void webterm_http_handler(struct failsafe_httpd_state *hs, char *data, int data_len);
 
 void webterm_puts(const char *str);
