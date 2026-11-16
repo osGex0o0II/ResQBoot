@@ -1952,15 +1952,14 @@ static int httpd_handle_file_request(struct failsafe_httpd_state *hs, char *data
 		return 0;
 	}
 
-	for (i = 4; i < 30 && (int)i < data_len; i++) {
+	for (i = 4; (int)i < data_len; i++) {
 		if (is_http_whitespace(data[i])) {
 			data[i] = 0;
-			i = 0;
 			break;
 		}
 	}
-	if (i != 0) {
-		print_error("request file name too long!");
+	if ((int)i >= data_len) {
+		print_error("request line too long or malformed!");
 		return -1;
 	}
 
@@ -2345,6 +2344,15 @@ static err_t httpd_poll_cb(void *arg, struct tcp_pcb *pcb) {
 
 static err_t httpd_accept(void *arg, struct tcp_pcb *pcb, err_t err) {
 	struct failsafe_httpd_state *hs;
+
+	/*
+	 * tcp_listen_input() calls the accept callback with pcb == NULL and
+	 * err == ERR_MEM when the TCP PCB pool is exhausted.  There is no
+	 * connection to configure in that case; dereferencing pcb would
+	 * fault.  lwIP drops the SYN and the client may retry.
+	 */
+	if (pcb == NULL)
+		return ERR_OK;
 
 	hs = malloc(sizeof(struct failsafe_httpd_state));
 	if (hs == NULL) {
