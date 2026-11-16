@@ -80,14 +80,14 @@ if [ $# -gt 0 ]; then
 	# Then check for valid cleanup commands
 	if [ "$1" = "clean_all" ]; then
 		echo "Delete old u-boot files"
-		# Remove all possible output files
+		# Remove IPQ U-Boot binaries from bin/
 		rm -f bin/openwrt-ipq*
 exit 0
 	elif [ "$1" = "clean" ]; then
 		echo "Delete old u-boot files"
-		# Remove all possible output files
+		# Remove IPQ U-Boot binaries from bin/
 		rm -f bin/openwrt-ipq*
-echo "Clean selected generated build files"
+echo "Delete files matching recursive cleanup patterns"
 		find . -type f \
 			\( \
 				-name '.*.cmd' -o \
