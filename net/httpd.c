@@ -94,13 +94,10 @@ static void httpd_make_serverip(const unsigned int octets[4], char *serverip)
 	sprintf(serverip, "%u.%u.%u.%u", octets[0], octets[1], octets[2], host);
 }
 
-static void httpd_set_recovery_network(const char *ipaddr, const char *serverip,
+/* Recovery addresses are runtime-only; never mutate the saved environment. */
+static void httpd_set_recovery_network(const char *serverip,
 				       struct in_addr httpd_ip)
 {
-	setenv("ipaddr", ipaddr);
-	setenv("serverip", serverip);
-	setenv("netmask", HTTPD_RECOVERY_NETMASK);
-	setenv("gatewayip", NULL);
 	net_httpd_ip = httpd_ip;
 	net_copy_ip(&net_ip, &net_httpd_ip);
 	net_gateway.s_addr = 0;
@@ -154,11 +151,13 @@ void HttpdStop(void) {
 #ifdef CONFIG_DHCPD
 	dhcpd_deinit_server();
 #endif
+	net_httpd_ip.s_addr = 0;
 	reset_webfailsafe_state();
 }
 
 void HttpdDone(void) {
 	webterm_set_command_enabled(0);
+	net_httpd_ip.s_addr = 0;
 	reset_webfailsafe_state();
 	do_http_progress(WEBFAILSAFE_PROGRESS_UPGRADE_READY);
 }
@@ -925,10 +924,9 @@ int do_httpd(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]) {
 			return CMD_RET_USAGE;
 
 		httpd_make_serverip(octets, serverip);
-		httpd_set_recovery_network(argv[ip_index], serverip, custom_ip);
+		httpd_set_recovery_network(serverip, custom_ip);
 	} else {
-		httpd_set_recovery_network(HTTPD_RECOVERY_IP,
-					   HTTPD_RECOVERY_SERVERIP,
+		httpd_set_recovery_network(HTTPD_RECOVERY_SERVERIP,
 					   string_to_ip(HTTPD_RECOVERY_IP));
 	}
 

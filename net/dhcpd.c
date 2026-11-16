@@ -812,16 +812,27 @@ void dhcpd_ip_settings(void) {
 	char *env_ip = getenv("ipaddr");
 	char *env_netmask = getenv("netmask");
 	char *env_gateway = getenv("gatewayip");
+	struct in_addr ip_addr, netmask_addr, server_addr;
 
-	if (env_ip == NULL || env_netmask == NULL) {
-		run_command("env default ipaddr netmask", 0);
-		env_ip = getenv("ipaddr");
-		env_netmask = getenv("netmask");
+#ifdef CONFIG_LWIP_HTTPD
+	if (net_httpd_ip.s_addr) {
+		/* HTTP recovery uses its session address, not saved env values. */
+		ip_addr = net_httpd_ip;
+		netmask_addr = string_to_ip("255.255.255.0");
+		env_gateway = NULL;
+	} else
+#endif
+	{
+		if (env_ip == NULL || env_netmask == NULL) {
+			run_command("env default ipaddr netmask", 0);
+			env_ip = getenv("ipaddr");
+			env_netmask = getenv("netmask");
+		}
+		ip_addr = string_to_ip(env_ip);
+		netmask_addr = string_to_ip(env_netmask);
 	}
 
-	struct in_addr ip_addr = string_to_ip(env_ip);
-	struct in_addr server_addr = ip_addr;
-	struct in_addr netmask_addr = string_to_ip(env_netmask);
+	server_addr = ip_addr;
 
 	dhcpd_svr_cfg.server_ip = server_addr;
 

@@ -44,7 +44,7 @@ Web 页面提供固件、U-Boot、ART、CDT、MIBIB、GPT 等镜像操作，以�
 
 ## 环境变量
 
-设备信息页的快捷设置仅支持 `reset_key`、`config_name`。其他环境变量可在 Web 命令终端或串口 U-Boot 控制台中修改；修改前请确认变量用途。
+设备信息页的快捷设置仅支持 `reset_key`、`config_name`，且会检查环境保存结果。Web 命令终端默认关闭，需从本地串口执行 `httpd t` 为当前会话开启；开放后可执行任意 U-Boot 命令，须在隔离网络下使用。
 
 ### 复位按键 GPIO
 
@@ -78,7 +78,7 @@ saveenv
 
 ## 恢复默认网络参数
 
-无参数执行 `httpd` 时，默认网络参数只写入当前运行环境，不会自动保存。可查看当前值：
+执行 `httpd` 时采用独立的临时恢复网络地址，不修改 `ipaddr`、`serverip`、`netmask`、`gatewayip` 环境变量；因此后续保存其他设置也不会顺带保存恢复网络地址。可查看原有环境值：
 
 ```text
 printenv ipaddr serverip netmask gatewayip
