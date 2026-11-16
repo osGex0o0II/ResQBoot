@@ -2,10 +2,8 @@
 #include <command.h>
 #include <net.h>
 /*
- * IPQ6018 selects NAND through CONFIG_QPIC_NAND/CONFIG_CMD_NAND and does not
- * define the IPQ5018/IPQ5332-only CONFIG_NAND_FLASH symbol.  Use the command
- * symbol so ART reads/writes work on every NAND platform, not just those that
- * happen to enable the newer Kconfig option.
+ * Use CONFIG_CMD_NAND to include the NAND access interface. Some IPQ boards,
+ * including IPQ6018, enable NAND commands without CONFIG_NAND_FLASH.
  */
 #if defined(CONFIG_CMD_NAND)
 #include <nand.h>

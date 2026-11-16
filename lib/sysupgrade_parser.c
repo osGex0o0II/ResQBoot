@@ -198,9 +198,9 @@ static int ubi_write_volume(const char *name, const void *data, size_t size, int
 	char rm_cmd[64];
 
 	/*
-	 * Never remove the old volume until we know the replacement can be
-	 * allocated. Otherwise an ENOSPC create leaves the device without a
-	 * kernel/rootfs volume.
+	 * Check available UBI capacity before removing the current volume.
+	 * This reduces the risk of ENOSPC, but does not guarantee the
+	 * subsequent create or write will succeed.
 	 */
 	if (ubi_volume_can_replace(name, size) != 0) {
 		if (required)
