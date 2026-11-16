@@ -10,7 +10,7 @@
 
 ## 功能
 
-- Web 恢复界面与 DHCP 服务
+- Web 恢复界面、DHCP 服务与命令终端
 - 固件和 U-Boot 刷写，以及 ART、CDT、MIBIB、GPT 等分区操作
 - 通过 Web 页面配置 `reset_key` 和 `config_name`
 - FIT 格式 initramfs 内存启动

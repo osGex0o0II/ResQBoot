@@ -44,7 +44,7 @@ Web 页面提供固件、U-Boot、ART、CDT、MIBIB、GPT 等镜像操作，以�
 
 ## 环境变量
 
-Web 页面仅支持设置或清除 `reset_key`、`config_name`；其他环境变量须通过 U-Boot 控制台修改。
+设备信息页的快捷设置仅支持 `reset_key`、`config_name`。其他环境变量可在 Web 命令终端或串口 U-Boot 控制台中修改；修改前请确认变量用途。
 
 ### 复位按键 GPIO
 
