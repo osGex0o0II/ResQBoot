@@ -45,4 +45,4 @@
 
 项目以 [GPLv2](LICENSE) 为主要许可证，部分文件另有许可声明；复制、修改和分发须遵守源文件及[许可说明](Licenses/README)中的适用条款。
 
-本项目派生自 [1980490718/u-boot-2016](https://github.com/1980490718/u-boot-2016)，基于 Qualcomm QSDK 12.5 开发。`README_ORIG` 为历史 U-Boot 文档，不代表当前支持范围。
+源自 [1980490718/u-boot-2016](https://github.com/1980490718/u-boot-2016)。`README_ORIG` 为历史 U-Boot 文档，不代表当前支持范围。
