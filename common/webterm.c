@@ -244,7 +244,7 @@ static int webterm_header_matches(const char *line, const char *expected,
 	return 1;
 }
 
-static int webterm_post_is_from_ui(const char *data, int data_len)
+int webterm_post_is_from_ui(const char *data, int data_len)
 {
 	static const char request_header[] = "X-ResQBoot-Request: 1";
 	const char *end = strstr(data, "\r\n\r\n");

@@ -2230,6 +2230,16 @@ static err_t httpd_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 			if (httpd_handle_file_request(hs, data, data_len) < 0)
 				return httpd_recv_abort(hs, pcb, data, need_free, p);
 		} else if (strncmp(data, "POST", 4) == 0 && is_http_method_separator(data[4])) {
+			/* Protect all state-changing POST routes, including uploads. */
+			static const char forbidden[] =
+				"HTTP/1.0 403 Forbidden\r\n"
+				"Content-Type: text/plain\r\n"
+				"Connection: close\r\n\r\n"
+				"Missing trusted-request header";
+			if (!webterm_post_is_from_ui(data, data_len)) {
+				httpd_send_static(hs, forbidden, sizeof(forbidden) - 1);
+				break;
+			}
 			if (strncmp(&data[5], "/webterm", 8) == 0) {
 				webterm_http_handler(hs, data, data_len);
 				break;
