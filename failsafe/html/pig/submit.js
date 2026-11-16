@@ -96,6 +96,21 @@ function handleSubmit(e) {
 function showFail(isTypeMismatch) {
 	document.querySelector('.card').innerHTML='<h2>验证失败</h2><div class="error"><p>'+(isTypeMismatch?'类型不匹配':'大小不匹配')+'</p></div><button onclick="window.open(\'term.html\',\'_blank\')">终端详情</button>';
 }
+function requestManualReboot() {
+	if (!confirm('确认重启？')) return;
+	fetch('/webterm/cmd', {
+		method: 'POST',
+		headers: {'Content-Type':'text/plain','X-ResQBoot-Request':'1'},
+		body: 'reset'
+	}).then(function(r) {
+		if (!r.ok) throw new Error('请求被拒绝');
+		showStep(3, '设备重启中...', 3);
+		pingDevice(3);
+	}).catch(function() {
+		alert('未收到重启确认，请检查设备是否正在重启。');
+	});
+}
+
 function pollUpgradeStatus() {
 	var done = 0;
 	function check() {
@@ -107,7 +122,7 @@ function pollUpgradeStatus() {
 				done = 1;
 				var el = document.querySelector('.card');
 				if (!el) { el = document.createElement('div'); el.className = 'card'; (document.querySelector('main') || document.body).appendChild(el); }
-				el.innerHTML = '<h2>更新完成</h2><p>按需自动或手动重启。</p><button onclick="if(confirm(\'确认重启？\')){fetch(\'/webterm/cmd\',{method:\'POST\',headers:{\'Content-Type\':\'text/plain\',\'X-ResQBoot-Request\':\'1\'},body:\'reset\'});showStep(3,\'设备重启中...\',3);pingDevice(3)}">手动重启</button>';
+				el.innerHTML = '<h2>更新完成</h2><p>按需自动或手动重启。</p><button onclick="requestManualReboot()">手动重启</button>';
 				return;
 			}
 			if (s === 'flashing') { showStep(2, '写入中...'); return setTimeout(check, 1000); }

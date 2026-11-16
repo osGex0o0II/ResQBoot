@@ -30,7 +30,8 @@ doc = source("docs/recovery.md")
 require("static int webterm_command_enabled = 0;" in terminal, "Web terminal must be locked by default")
 require("webterm_set_command_enabled(allow_terminal)" in httpd and '"t"' in httpd, "Serial opt-in missing")
 require("webterm_post_is_from_ui(data, data_len)" in terminal, "Command POST anti-CSRF check missing")
-require('strcmp(cmd, "reset") == 0' in terminal, "Limited locked-mode reboot path missing")
+require('strcmp(cmd, "reset") == 0' in terminal and "webterm_is_cmd_path(path)" in terminal,
+        "Limited locked-mode reboot path missing")
 require("webterm_set_command_enabled(0)" in httpd, "Terminal lock reset on stop missing")
 
 network_section = httpd.split("static void httpd_set_recovery_network(", 1)[1].split("\n}\n", 1)[0]
@@ -108,6 +109,13 @@ int main(void) {
             printf("Request header regression in case %d\n", i);
             return 1;
         }
+    }
+    if (!webterm_is_cmd_path("cmd HTTP/1.1") ||
+        webterm_is_cmd_path("cmdx HTTP/1.1") ||
+        webterm_is_cmd_path("cmd?foo HTTP/1.1") ||
+        webterm_is_cmd_path("cmd")) {
+        puts("HTTP command target token regression");
+        return 1;
     }
     return 0;
 }

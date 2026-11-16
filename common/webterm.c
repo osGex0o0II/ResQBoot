@@ -269,6 +269,12 @@ static int webterm_post_is_from_ui(const char *data, int data_len)
 	return 0;
 }
 
+/* The request target still contains " HTTP/1.1"; match the full path token. */
+static int webterm_is_cmd_path(const char *path)
+{
+	return !strncmp(path, "cmd ", 4);
+}
+
 void webterm_http_handler(struct failsafe_httpd_state *hs, char *data, int data_len) {
 	const char *path;
 	int is_post, len, since;
@@ -297,7 +303,7 @@ void webterm_http_handler(struct failsafe_httpd_state *hs, char *data, int data_
 
 	/* Preserve the recovery UI's reboot control, not arbitrary commands. */
 	if (!webterm_command_enabled &&
-	    !(is_post && strcmp(path, "cmd") == 0 &&
+	    !(is_post && webterm_is_cmd_path(path) &&
 	      webterm_parse_post_body(data, data_len, cmd, sizeof(cmd)) > 0 &&
 	      strcmp(cmd, "reset") == 0)) {
 		webterm_respond(hs, 403, "text/plain",
@@ -305,7 +311,7 @@ void webterm_http_handler(struct failsafe_httpd_state *hs, char *data, int data_
 		return;
 	}
 
-	if (strncmp(path, "cmd", 3) == 0) {
+	if (webterm_is_cmd_path(path)) {
 		if (is_post) {
 			if (webterm_parse_post_body(data, data_len, cmd, sizeof(cmd)) > 0)
 				webterm_execute_command(cmd);
