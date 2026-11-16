@@ -23,6 +23,7 @@ IPQ5332,ipq5332_xiaomi_be306,Xiaomi BE306,Xiaomi BE306,Xiaomi BE306,Xiaomi-BE306
 IPQ5332,ipq5332_xiaomi_be6500,Xiaomi BE6500 (RN02),Xiaomi BE6500 (RN02),Xiaomi BE6500 (RN02),Xiaomi-BE6500,,0x8060001,yes,arch/arm/dts/ipq5332-xiaomi-be6500.dts,
 IPQ5332,ipq5332_xiaomi_be3600_pro_wired_5ports,Xiaomi BE3600 Pro Wired 5-Ports,Xiaomi BE3600 Pro Wired 5-Ports,Xiaomi BE3600 Pro Wired 5-Ports,Xiaomi-BE3600-Pro-5Ports,,0x8060004,unknown,arch/arm/dts/ipq5332-xiaomi-be3600-pro-wired-5ports.dts,
 IPQ5332,ipq5332_xiaomi_be3600_pro_wired_8ports,Xiaomi BE3600 Pro Wired 8-Ports,Xiaomi BE3600 Pro Wired 8-Ports,Xiaomi BE3600 Pro Wired 8-Ports,Xiaomi-BE3600-Pro-8Ports,,0x8060004,unknown,arch/arm/dts/ipq5332-xiaomi-be3600-pro-wired-8ports.dts,
+IPQ5332,ipq5332_xiaomi_be3600_pro_md16,Xiaomi BE3600 Pro MD16,Xiaomi BE3600 Pro MD16,Xiaomi BE3600 Pro MD16,Xiaomi-BE3600-Pro-MD16,,0x8060004,unknown,arch/arm/dts/ipq5332-xiaomi-be3600-pro-md16.dts,upstream MD16 profile; hardware validation pending
 IPQ5332,ipq5332_tiny,QCA Tiny Common,QCA Tiny Common,QCA Tiny Common,QCA-Tiny,,,yes,,generic tiny build
 IPQ5332,ipq5332_tiny_nor,QCA Tiny NOR Common,QCA Tiny NOR Common,QCA Tiny NOR Common,QCA-Tiny-NOR,,,yes,,generic tiny NOR build
 IPQ5332,ipq5332_tiny_debug,QCA Tiny Debug Common,QCA Tiny Debug Common,QCA Tiny Debug Common,QCA-Tiny-Debug,,,yes,,generic tiny debug build
