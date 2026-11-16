@@ -76,7 +76,7 @@ saveenv
 
 重启后将按设备树及构建默认配置生效。
 
-## 恢复默认网络参数
+## 查看持久网络配置
 
 执行 `httpd` 时采用独立的临时恢复网络地址，不修改 `ipaddr`、`serverip`、`netmask`、`gatewayip` 环境变量；因此后续保存其他设置也不会顺带保存恢复网络地址。可查看原有环境值：
 
@@ -84,7 +84,7 @@ saveenv
 printenv ipaddr serverip netmask gatewayip
 ```
 
-恢复并保存编译时的默认值：
+只有需要主动恢复持久网络配置时，才执行以下命令并保存：
 
 ```text
 env default -f ipaddr serverip netmask

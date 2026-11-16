@@ -159,8 +159,8 @@ dlBtn.onclick=function(){
 		}
 		restoreTimer=setTimeout(restoreTips,60000);
 	};
-	xhr.ontimeout=function(){onFail('下载超时。若为 NAND 分区，请确认是否存在坏块并改用 nand_full_OOB。');};
-	xhr.onerror=function(){onFail('下载出错。若为 NAND 分区，请确认是否存在坏块并改用 nand_full_OOB。');};
+	xhr.ontimeout=function(){onFail('备份超时。请检查网络状态及串口日志。');};
+	xhr.onerror=function(){onFail('备份连接出错。请检查网络状态及串口日志。');};
 	xhr.send();
 };
 

@@ -225,11 +225,48 @@ static int webterm_parse_post_body(char *data, int data_len, char *out, int out_
 /* This header blocks simple cross-site browser POSTs, not LAN clients.
  * Recovery HTTP is plaintext and does not authenticate the sender.
  */
-static int webterm_post_is_from_ui(const char *data) {
-	const char *end = strstr(data, "\r\n\r\n");
-	const char *header = strstr(data, "\r\nX-ResQBoot-Request: 1\r\n");
+static int webterm_header_matches(const char *line, const char *expected,
+				   int length)
+{
+	int i;
 
-	return end && header && header < end;
+	for (i = 0; i < length; i++) {
+		char a = line[i];
+		char b = expected[i];
+
+		if (a >= 'A' && a <= 'Z')
+			a += 'a' - 'A';
+		if (b >= 'A' && b <= 'Z')
+			b += 'a' - 'A';
+		if (a != b)
+			return 0;
+	}
+	return 1;
+}
+
+static int webterm_post_is_from_ui(const char *data, int data_len)
+{
+	static const char request_header[] = "X-ResQBoot-Request: 1";
+	const char *end = strstr(data, "\r\n\r\n");
+	const char *line = strstr(data, "\r\n");
+
+	if (!end || !line || end - data >= data_len)
+		return 0;
+
+	while (line < end) {
+		const char *next;
+
+		line += 2;
+		next = strstr(line, "\r\n");
+		if (!next || next > end)
+			break;
+		if (next - line == sizeof(request_header) - 1 &&
+		    webterm_header_matches(line, request_header,
+					   sizeof(request_header) - 1))
+			return 1;
+		line = next;
+	}
+	return 0;
 }
 
 void webterm_http_handler(struct failsafe_httpd_state *hs, char *data, int data_len) {
@@ -253,7 +290,7 @@ void webterm_http_handler(struct failsafe_httpd_state *hs, char *data, int data_
 		return;
 	path += 9;
 
-	if (is_post && !webterm_post_is_from_ui(data)) {
+	if (is_post && !webterm_post_is_from_ui(data, data_len)) {
 		webterm_respond(hs, 403, "text/plain", "Missing trusted-request header\n");
 		return;
 	}
