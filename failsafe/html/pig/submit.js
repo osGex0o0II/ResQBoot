@@ -43,7 +43,7 @@ function calcSHA256(input) {
 
 function getFlashBackupPref() {
 	try {
-		return localStorage.getItem('flash_backup') === '1' ? '1' : '';
+		return sessionStorage.getItem('flash_backup') === '1' ? '1' : '';
 	} catch (e) {
 		return '';
 	}
@@ -60,6 +60,9 @@ function getAutoRebootPref() {
 function handleSubmit(e) {
 	e.preventDefault();
 	var form = e.target;
+	if (document.getElementById('flash-backup-input') && getFlashBackupPref() === '1' &&
+	    !confirm('将按当前镜像类型尝试更新备分区。此设置不保证存在匹配的备分区，且失败时可能已写入主分区。确定继续？'))
+		return;
 	var btn = form.querySelector('button[type=submit]');
 	btn.disabled = true;
 	btn.textContent = '上传中...';

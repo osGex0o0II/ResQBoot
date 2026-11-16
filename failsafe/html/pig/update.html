@@ -13,7 +13,7 @@
 
 		<div class="tab-nav">
 			<div class="tab-item active" data-tab="firmware">固件</div>
-			<div class="tab-item" data-tab="uboot">U-BOOT</div>
+			<div class="tab-item" data-tab="uboot">U-Boot</div>
 			<div class="tab-item" data-tab="art">ART</div>
 			<div class="tab-item" data-tab="cdt">CDT</div>
 			<div class="tab-item" data-tab="ptable">分区表</div>
@@ -45,10 +45,10 @@
 				accept: '.ubi,.UBI,.trx,.TRX'
 			},
 			uboot: {
-				name: 'U-BOOT', icon: 'icon-hard-drive',
+				name: 'U-Boot', icon: 'icon-hard-drive',
 				accept: '.elf,.ELF,.mbn,.MBN',
 				danger: true,
-				tips: ['请确认所选的U-BOOT文件是正确的；', '更新U-BOOT<span style="color:red">非常危险</span>，可能会损坏设备；', 'REBOOT_TIP']
+				tips: ['请核对 U-Boot 镜像与设备及闪存型号。', '刷写 U-Boot 可能导致设备无法启动。', 'REBOOT_TIP']
 			},
 			art: {
 				name: 'ART', icon: 'icon-wifi',
@@ -79,7 +79,7 @@
 				title: '内存启动',
 				desc: '将尝试从内存启动<b>FIT 格式的 initramfs 镜像</b>。<br>请使用与设备匹配的镜像；文件扩展名不代表镜像格式。',
 				label: '选择<b>FIT 镜像文件</b>',
-				fullAccept: '.itb,.ITB,.fit,.FIT,.bin,.BIN,.img,.IMG,.uImage,.UIMAGE',
+				fullAccept: '.itb,.ITB,.fit,.FIT,.bin,.BIN,.img,.IMG',
 				tips: [
 					'仅支持 FIT 镜像，需确认与设备兼容；',
 					'U-Boot 的内存启动操作不主动刷写闪存，但启动后的系统仍可能修改存储；',

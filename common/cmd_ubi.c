@@ -265,9 +265,9 @@ out_err:
 }
 
 /*
- * Check that replacing @name with a volume of @size bytes can succeed after
- * the old volume is removed. This must be called before "ubi remove" so an
- * ENOSPC create cannot leave the device without a kernel/rootfs volume.
+ * Estimate PEB availability for replacing @name before removing the old
+ * volume. The check reduces ENOSPC risk but cannot guarantee that creation
+ * or the subsequent write will succeed.
  */
 int ubi_volume_can_replace(const char *name, size_t size)
 {

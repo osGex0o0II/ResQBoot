@@ -10,7 +10,7 @@
 <body class="iframe-content">
 	<div class="card">
 		<h2><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-cpu"/></svg>编程模式</h2>
-		<p>编程模式将覆盖目标存储设备的原始数据。<br>请核对<b>目标闪存、容量和镜像布局</b>，并选择对应的完整镜像。</p>
+		<p>编程模式从目标闪存起始位置写入镜像。NAND 模式擦除整片芯片；NOR、eMMC 按镜像大小擦写对应范围。<br>请核对<b>闪存容量和镜像布局</b>。</p>
 		<form enctype="multipart/form-data" name="img" id="img-form">
 			<div class="backup-row">
 				<div class="backup-col">
@@ -31,8 +31,8 @@
 		</form>
 		<div class="tips tips-danger">
 			<ul>
-				<li class="file-tip">请确认所选的IMG文件是正确的；</li>
-				<li class="file-tip">全量写入可能覆盖启动分区及校准数据，导致设备无法启动；操作前须备份。</li>
+				<li class="file-tip">请确认所选 IMG 与设备及闪存布局匹配。</li>
+				<li class="file-tip">原始写入可能覆盖启动分区及校准数据，导致设备无法启动。操作前须备份。</li>
 				<li class="file-tip" id="img-reboot-tip">更新完成后将自动重启。</li>
 				<li id="sha256-display" style="display:none;list-style:none"></li>
 			</ul>

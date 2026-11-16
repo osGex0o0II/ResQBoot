@@ -406,16 +406,12 @@
 		});
 	}
 
-	function isBackupPartition(name) {
-		var u = (name || '').toUpperCase();
-		return u.indexOf('_1') === u.length - 2 || u.indexOf('BACKUP') !== -1 || u === 'BOOTCONFIG1';
-	}
 
 	function loadUpdsetTable() {
 		var tbody = document.getElementById('updset-tbody');
 		tbody.innerHTML = '';
 
-		// 第一行：更新备分区
+		// 备分区更新为用户显式选择；分区名称不能证明固件写入能力
 		var chk = document.createElement('input');
 		chk.type = 'checkbox';
 		chk.id = 'flash-backup-chk';
@@ -424,7 +420,7 @@
 		lbl.style.marginLeft = '0.5rem';
 		lbl.textContent = '检测中...';
 		var tdName = document.createElement('td');
-		tdName.textContent = '更新备分区';
+		tdName.textContent = '尝试更新备分区';
 		var tdVal = document.createElement('td');
 		tdVal.className = 'about-gpio-ops';
 		tdVal.appendChild(chk);
@@ -434,30 +430,17 @@
 		tr.appendChild(tdVal);
 		tbody.appendChild(tr);
 		var applyState = function(en, tx) { chk.disabled = !en; lbl.textContent = tx; };
-		var setLs = function(v) { try { localStorage.setItem('flash_backup', v); } catch (e) {} };
-		var stateText = function() { return chk.checked ? '已开启·尝试更新备分区' : '已关闭·不请求备分区'; };
+		var setSession = function(v) { try { sessionStorage.setItem('flash_backup', v); } catch (e) {} };
+		var stateText = function() { return chk.checked ? '已开启·每次写入前确认' : '已关闭·不请求备分区'; };
 		var storageOk = true;
-		try { chk.checked = localStorage.getItem('flash_backup') === '1'; }
+		try { chk.checked = sessionStorage.getItem('flash_backup') === '1'; }
 		catch (e) { storageOk = false; chk.checked = false; }
-		var done = false;
-		var timer = setTimeout(function() {
-			if (done) return;
-			done = true;
-			applyState(false, '检测失败');
-			chk.checked = false;
-			setLs('0');
-		}, 10000);
-		xhrGet('/partitions', function(data) {
-			if (done) return;
-			done = true;
-			clearTimeout(timer);
-			var hasBackup = (data && data.parts || []).some(function(p) { return isBackupPartition(p.name); });
-			var enabled = storageOk && hasBackup;
-			applyState(enabled, !storageOk ? '不可用' : !hasBackup ? '无备分区' : stateText());
-			if (!enabled) { chk.checked = false; if (storageOk && !hasBackup) setLs('0'); }
-		});
+		applyState(storageOk, storageOk ? stateText() : '不可用');
 		chk.onchange = function() {
-			try { localStorage.setItem('flash_backup', chk.checked ? '1' : '0'); applyState(true, stateText()); }
+			if (chk.checked && !confirm('无法仅凭分区名称确认备份写入能力。请先核对设备布局并备份原始数据。仍要尝试写入备分区？')) {
+				chk.checked = false;
+			}
+			try { sessionStorage.setItem('flash_backup', chk.checked ? '1' : '0'); applyState(true, stateText()); }
 			catch (e) { chk.checked = false; applyState(false, '不可用'); }
 		};
 
