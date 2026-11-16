@@ -10,6 +10,7 @@
 <body class="iframe-content">
 	<div class="card">
 		<h2><svg class="icon" viewBox="0 0 24 24"><use href="icons.svg?v=f#icon-terminal"/></svg>命令终端</h2>
+		<p id="terminalLocked" class="backup-tip" style="display:none">命令终端默认关闭。仅可通过串口执行 <code>httpd t</code> 为当前会话开放；Web 恢复使用明文 HTTP，请隔离网络。</p>
 		<div class="terminal-container">
 			<a href="term.html" target="_blank" class="terminal-expand" id="expandBtn" title="独立窗口打开">⧉</a>
 			<div class="terminal-output-wrapper">
@@ -45,13 +46,25 @@
 	var POLL_INTERVAL = 500;
 	var POLL_FAST = 100;
 	var FETCH_OPTS = { cache: 'no-cache', headers: { 'Cache-Control': 'no-cache' } };
-	var CMD_HEADERS = { 'Content-Type': 'text/plain' };
+	var CMD_HEADERS = { 'Content-Type': 'text/plain', 'X-ResQBoot-Request': '1' };
 
 	var [terminalOutput, terminalInput, sendBtn, clearBtn, connectionStatus, abortBtn] =
 		['terminalOutput', 'terminalInput', 'sendBtn', 'clearBtn', 'connectionStatus', 'abortBtn'].map(document.getElementById, document);
 
 	var pollTimer = null;
 	var lastSeq = 0;
+	var isLocked = false;
+
+	function setLocked(locked) {
+		isLocked = locked;
+		document.getElementById('terminalLocked').style.display = locked ? '' : 'none';
+		['terminalInput','sendBtn','abortBtn','queryEnv','updateEnv','deleteEnv','resetEnv','rebootDev']
+			.forEach(function(id) { document.getElementById(id).disabled = locked; });
+		if (locked) {
+			connectionStatus.textContent = '锁定';
+			connectionStatus.style.color = 'orange';
+		}
+	}
 
 	function postCommand(body) {
 		return fetch(URL.CMD, { method: 'POST', headers: CMD_HEADERS, body: body });
@@ -67,8 +80,11 @@
 	}
 
 	function postAndPoll(cmd) {
-		postCommand(cmd);
-		restartPollFast();
+		if (isLocked) return;
+		postCommand(cmd).then(function(response) {
+			if (response.status === 403) setLocked(true);
+			else restartPollFast();
+		}).catch(function(){});
 	}
 
 	function getInput() {
@@ -79,7 +95,13 @@
 		var ok = false, hasNewData = false;
 		try {
 			var response = await fetch(URL.STATUS, FETCH_OPTS);
+			if (response.status === 403) {
+				setLocked(true);
+				restartPoll(POLL_INTERVAL);
+				return;
+			}
 			if (response.ok) {
+				setLocked(false);
 				var seq = parseInt(await response.text(), 10);
 				if (seq !== lastSeq) {
 					await fetchOutput();
@@ -89,8 +111,10 @@
 				ok = true;
 			}
 		} catch (error) {}
-		connectionStatus.textContent = ok ? '✓' : '✗';
-		connectionStatus.style.color = ok ? 'green' : 'red';
+		if (!isLocked) {
+			connectionStatus.textContent = ok ? '✓' : '✗';
+			connectionStatus.style.color = ok ? 'green' : 'red';
+		}
 		restartPoll(hasNewData ? POLL_FAST : POLL_INTERVAL);
 	}
 
@@ -107,14 +131,18 @@
 
 	async function sendCommand() {
 		var command = terminalInput.value.trim();
-		if (!command) return;
+		if (!command || isLocked) return;
 		[terminalInput, sendBtn].forEach(function (el) { el.disabled = true; });
 		try {
-			await postCommand(command);
+			var response = await postCommand(command);
+			if (!response.ok) {
+				if (response.status === 403) setLocked(true);
+				return;
+			}
 			terminalInput.value = '';
 			restartPollFast();
 		} catch (error) { } finally {
-			[terminalInput, sendBtn].forEach(function (el) { el.disabled = false; });
+			[terminalInput, sendBtn].forEach(function (el) { el.disabled = isLocked; });
 			terminalInput.focus();
 			updateButtonStyles();
 		}
