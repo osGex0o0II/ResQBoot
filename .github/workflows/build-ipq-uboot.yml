@@ -44,6 +44,9 @@ jobs:
           echo "Current timezone: $(timedatectl show -p Timezone --value)"
           echo "Current time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 
+      - name: Test safe build cleanup
+        run: python3 scripts/test_clean_safety.py
+
       - name: Check device metadata
         run: python3 scripts/check_devices.py
 
