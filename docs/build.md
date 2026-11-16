@@ -43,7 +43,7 @@ cd ResQBoot
 ./build.sh ipq6018_jdcloud_ax6600
 ```
 
-清理构建中间文件：`./build.sh clean`；仅清理输出文件：`./build.sh clean_all`。执行前请备份需要保留的构建产物。
+`./build.sh clean` 删除编译中间文件及 `bin/openwrt-ipq*` 产物；`./build.sh clean_all` 仅删除 `bin/openwrt-ipq*` 产物。清理前请备份需要保留的文件。
 
 编译产物位于 `bin/`。IPQ40xx、IPQ806x 输出 `.elf`，其他 IPQ 平台输出 `.mbn`；发布资产按 [设备索引](devices.md) 统一命名。
 
