@@ -48,6 +48,7 @@ function xhrGet(url, cb) {
 function xhrPost(url, body, cb) {
 	var xhr = new XMLHttpRequest();
 	xhr.open('POST', url, true);
+	xhr.setRequestHeader('X-ResQBoot-Request', '1');
 	xhr.timeout = 10000;
 	xhr.onload = function() {
 		cb(xhr.status === 200 ? xhr.responseText : null);

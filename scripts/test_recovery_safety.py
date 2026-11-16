@@ -23,6 +23,7 @@ terminal = source("common/webterm.c")
 httpd = source("net/httpd.c")
 dhcp = source("net/dhcpd.c")
 env = source("failsafe/failsafe_httpd.c")
+common = source("failsafe/html/pig/common.js")
 about = source("failsafe/html/pig/about.html")
 upload = source("failsafe/html/pig/submit.js")
 doc = source("docs/recovery.md")
@@ -30,6 +31,12 @@ doc = source("docs/recovery.md")
 require("static int webterm_command_enabled = 0;" in terminal, "Web terminal must be locked by default")
 require("webterm_set_command_enabled(allow_terminal)" in httpd and '"t"' in httpd, "Serial opt-in missing")
 require("webterm_post_is_from_ui(data, data_len)" in terminal, "Command POST anti-CSRF check missing")
+require("if (!webterm_post_is_from_ui(data, data_len))" in env and
+        env.index("if (!webterm_post_is_from_ui(data, data_len))") < env.index("httpd_handle_env_set(hs, data, data_len);"),
+        "Recovery POST endpoints must reject cross-site forms before changing state")
+require("xhr.setRequestHeader('X-ResQBoot-Request', '1')" in common and
+        "headers: {'X-ResQBoot-Request': '1'}" in upload,
+        "UI settings and firmware upload requests need matching headers")
 require('strcmp(cmd, "reset") == 0' in terminal and "webterm_is_cmd_path(path)" in terminal,
         "Limited locked-mode reboot path missing")
 require("webterm_set_command_enabled(0)" in httpd, "Terminal lock reset on stop missing")

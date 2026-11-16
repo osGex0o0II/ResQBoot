@@ -21,6 +21,9 @@ void webterm_reset(void);
 /* Unrestricted commands require explicit serial-console opt-in. */
 void webterm_set_command_enabled(int enabled);
 
+/* Browser cross-site request guard; not network authentication. */
+int webterm_post_is_from_ui(const char *data, int data_len);
+
 void webterm_http_handler(struct failsafe_httpd_state *hs, char *data, int data_len);
 
 void webterm_puts(const char *str);
