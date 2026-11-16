@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       ipq_type:
-        description: 'Please select the IPQ type(s) to build. for example: ipq6018,ipq807x,all = all types.'
+        description: 'Select one IPQ platform or all platforms to build.'
         required: true
         default: 'all'
         type: choice
@@ -57,10 +57,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y ${{ env.DEPENDENCIES }}
 
-      - name: Install Node.js packages(minifier, css, js, terser) for Web interface compression
+      - name: Install Web asset minifiers
         run: sudo npm install -g html-minifier-terser clean-css terser svgo
 
-      - name: Clone Toolchain to staging_dir
+      - name: Clone cross-compiler toolchain
         run: |
           git clone --depth=1 ${{ env.TOOLCHAIN }} ../staging_dir
           echo "Clone Toolchain to staging_dir"
@@ -84,7 +84,7 @@ jobs:
           path: bin/
           retention-days: 30
 
-      - name: Show bin directory content
+      - name: List build artifacts
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.ipq_type == 'all' || inputs.ipq_type == matrix.ipq_type }}
         run: |
           echo " ${{ matrix.ipq_type }} Build completed!"
@@ -124,12 +124,12 @@ jobs:
           pattern: u-boot-*
           merge-multiple: true
 
-      - name: Confirm current timezone is Asia/Shanghai
+      - name: Log release timestamp
         run: |
           echo "Current timezone: $(timedatectl show -p Timezone --value)"
           echo "Current time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 
-      - name: Set TODAY and BUILD_TIME environment variables
+      - name: Set release timestamps
         run: |
           echo "TODAY=$(date +%Y-%m-%d)" >> $GITHUB_ENV
           echo "BUILD_TIME=$(date '+%H:%M:%S')" >> $GITHUB_ENV

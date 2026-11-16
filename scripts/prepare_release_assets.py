@@ -47,22 +47,23 @@ def write_release_body(path: Path, devices: list[dict[str, str]]) -> None:
     timezone = os.environ.get("TZ", "Asia/Shanghai")
     platform_count = len({row["platform"] for row in devices})
 
-    lines = ["ResQBoot · Qualcomm IPQ U-Boot 构建", ""]
+    lines = ["ResQBoot U-Boot 构建", ""]
     if build_time:
         lines.extend([f"构建时间：{build_time} {timezone}", ""])
+
+    commit = os.environ.get("GITHUB_SHA", "main")
+    index_url = f"https://github.com/osGex0o0II/ResQBoot/blob/{commit}/docs/devices.md"
 
     lines.extend([
         "## 下载与校验",
         "",
-        f"本次构建包含 {platform_count} 个平台、{len(devices)} 个构建配置（含通用配置）。",
-        "",
-        "依据 [设备与构建配置索引](https://github.com/osGex0o0II/ResQBoot/blob/main/docs/devices.md) 选择对应资产。",
-        "下载后使用 `SHA256SUMS` 中对应文件的 SHA-256 校验值核对完整性。",
+        f"本次包含 {platform_count} 个平台、{len(devices)} 个构建配置（含通用配置）。",
+        f"根据 [设备与构建配置]({index_url}) 选择对应资产，并使用 `SHA256SUMS` 校验 SHA-256。",
         "",
         "## 验证范围",
         "",
-        "CI 检查设备元数据并完成各平台交叉编译，不等同于全部设备的启动、刷写或恢复实测。",
-        "设备表的测试状态为项目历史记录，不代表当前 Release 的硬件验证结果。",
+        "CI 已完成设备元数据检查及跨平台编译。",
+        "设备测试标记不代表本次发布已完成实机启动、刷写或恢复验证。",
         "",
     ])
 
