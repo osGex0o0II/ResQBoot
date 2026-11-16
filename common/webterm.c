@@ -260,7 +260,7 @@ static int webterm_post_is_from_ui(const char *data, int data_len)
 		next = strstr(line, "\r\n");
 		if (!next || next > end)
 			break;
-		if (next - line == sizeof(request_header) - 1 &&
+		if ((size_t)(next - line) == sizeof(request_header) - 1 &&
 		    webterm_header_matches(line, request_header,
 					   sizeof(request_header) - 1))
 			return 1;

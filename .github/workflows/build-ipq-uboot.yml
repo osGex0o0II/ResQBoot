@@ -47,6 +47,9 @@ jobs:
       - name: Test safe build cleanup
         run: python3 scripts/test_clean_safety.py
 
+      - name: Test recovery security and browser scripts
+        run: python3 scripts/test_recovery_safety.py
+
       - name: Check device metadata
         run: python3 scripts/check_devices.py
 
