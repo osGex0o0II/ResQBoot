@@ -44,7 +44,12 @@
 #define TCP_OOSEQ_MAX_BYTES               0
 #define MEMP_NUM_TCP_SEG                  512
 #define MEMP_NUM_TCP_PCB_LISTEN           2
-#define MEMP_NUM_TCP_PCB                  4
+/*
+ * Browsers open up to six connections per host and leave TIME_WAIT
+ * entries behind.  Four PCBs made the HTTP server abort established
+ * requests during a normal page load (blank content pane).
+ */
+#define MEMP_NUM_TCP_PCB                  16
 #define MEMP_NUM_REASSDATA                0
 #define MEMP_NUM_ARP_QUEUE                8
 

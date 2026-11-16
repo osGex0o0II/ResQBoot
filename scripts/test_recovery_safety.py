@@ -41,6 +41,18 @@ require('strcmp(cmd, "reset") == 0' in terminal and "webterm_is_cmd_path(path)" 
         "Limited locked-mode reboot path missing")
 require("webterm_set_command_enabled(0)" in httpd, "Terminal lock reset on stop missing")
 
+lwipopts = source("failsafe/lwipopts.h")
+pcb_pool = re.search(r"^#define\s+MEMP_NUM_TCP_PCB\s+(\d+)\s*$", lwipopts, re.MULTILINE)
+require(pcb_pool is not None and int(pcb_pool.group(1)) >= 12,
+        "TCP PCB pool must cover concurrent browser page loads")
+accept = env.split("static err_t httpd_accept(", 1)[1].split("static struct tcp_pcb *listen_pcb;", 1)[0]
+require("if (pcb == NULL)" in accept and
+        accept.index("if (pcb == NULL)") < accept.index("hs = malloc"),
+        "HTTP accept must handle lwIP's NULL PCB")
+file_req = env.split("static int httpd_handle_file_request(", 1)[1].split("\n}\n", 1)[0]
+require("(int)i < data_len" in file_req and "request file name too long" not in file_req,
+        "HTTP file requests must accept long GET URLs")
+
 network_section = httpd.split("static void httpd_set_recovery_network(", 1)[1].split("\n}\n", 1)[0]
 require("setenv(" not in network_section and "net_httpd_ip = httpd_ip" in network_section,
         "HTTP recovery must not mutate persistent network variables")

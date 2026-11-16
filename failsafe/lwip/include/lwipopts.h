@@ -1,6 +1,12 @@
 #ifndef __LWIPOPTS_H__
 #define __LWIPOPTS_H__
 
+/*
+ * Deprecated duplicate: the build includes failsafe/lwipopts.h first
+ * (see failsafe/Makefile).  Keep the TCP PCB pool in sync so this copy
+ * cannot reintroduce the blank-page bug if the include order changes.
+ */
+
 #define NO_SYS                          1
 #define SYS_LIGHTWEIGHT_PROT            0
 
@@ -40,7 +46,7 @@
 #define TCP_OOSEQ_MAX_BYTES               0
 #define MEMP_NUM_TCP_SEG                  128
 #define MEMP_NUM_TCP_PCB_LISTEN           2
-#define MEMP_NUM_TCP_PCB                  4
+#define MEMP_NUM_TCP_PCB                  16
 #define MEMP_NUM_REASSDATA                0
 #define MEMP_NUM_ARP_QUEUE                8
 
