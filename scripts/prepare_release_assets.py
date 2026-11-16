@@ -42,64 +42,32 @@ def clean_directory(path: Path) -> None:
     path.mkdir(parents=True)
 
 
-def markdown_value(value: str) -> str:
-    return value or "-"
-
-
-def tested_label(value: str) -> str:
-    return {
-        "yes": "yes",
-        "no": "no",
-        "unknown": "unknown",
-    }.get(value, value)
-
-
 def write_release_body(path: Path, devices: list[dict[str, str]]) -> None:
     build_time = os.environ.get("FULL_BUILD_TIME", "")
     timezone = os.environ.get("TZ", "Asia/Shanghai")
+    platform_count = len({row["platform"] for row in devices})
 
-    lines = [
-        "Compiled U-Boot IPQ platforms.",
-        "",
-    ]
+    lines = ["ResQBoot · Qualcomm IPQ U-Boot 构建", ""]
     if build_time:
-        lines.extend([f"Build Time: {build_time} {timezone}", ""])
+        lines.extend([f"构建时间：{build_time} {timezone}", ""])
 
-    lines.extend(
-        [
-            "## Device Asset Index",
-            "",
-            "| Platform | Asset | Device Model | Config | Aliases | Tested |",
-            "| --- | --- | --- | --- | --- | --- |",
-        ]
-    )
-
-    for row in devices:
-        asset = release_artifact_name(row)
-        lines.append(
-            "| {platform} | `{asset}` | {model} | `{config}` | {aliases} | {tested} |".format(
-                platform=row["platform"],
-                asset=asset,
-                model=row["readme_name"],
-                config=row["config"],
-                aliases=markdown_value(row.get("aliases", "")),
-                tested=tested_label(row["tested"]),
-            )
-        )
-
-    lines.extend(
-        [
-            "",
-            "## Checksums",
-            "",
-            "Verify every download with `SHA256SUMS` (`<sha256>  <filename>`).",
-            "This prevents selecting a stale asset with the same filename from an older release.",
-            "",
-        ]
-    )
+    lines.extend([
+        "## 下载与校验",
+        "",
+        f"本次构建包含 {platform_count} 个平台、{len(devices)} 个构建配置（含通用配置）。",
+        "",
+        "依据 [设备与构建配置索引](https://github.com/osGex0o0II/ResQBoot/blob/main/docs/devices.md) 选择对应资产。",
+        "下载后使用 `SHA256SUMS` 中对应文件的 SHA-256 校验值核对完整性。",
+        "",
+        "## 验证范围",
+        "",
+        "CI 检查设备元数据并完成各平台交叉编译，不等同于全部设备的启动、刷写或恢复实测。",
+        "设备表的测试状态为项目历史记录，不代表当前 Release 的硬件验证结果。",
+        "",
+    ])
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def write_checksums(output_dir: Path) -> None:
