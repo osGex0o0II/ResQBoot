@@ -1,22 +1,12 @@
-# 支持设备
+# 构建配置与适配设备
 
-本页列出每个构建配置对应的实际设备型号和 Release 资产名。
+本表列出构建配置、适配设备及 Release 资产名。QCA Common、Standard、Tiny 等为通用构建配置，不代表独立设备型号。
 
-Release 资产使用以下命名格式：
+资产命名为 `<Platform>-<Device>.ext`。IPQ40xx、IPQ806x 使用 `.elf`；其余平台使用 `.mbn`。
 
-```text
-<Platform>-<Device>.ext
-```
+**测试记录**：`✓` 表示元数据标记为已测试，`×` 表示未测试，`?` 表示状态未知。这些是项目维护的历史记录，不代表本次 Release 的实机验证结果；通用配置的标记也不代表某个特定机型已通过验证。
 
-`IPQ40xx` 和 `IPQ806x` 使用 `.elf` 文件，其它 IPQ 平台使用 `.mbn` 文件。
-
-测试状态说明：
-
-- `✓`：已测试
-- `×`：未测试
-- `?`：未知
-
-| 平台 | 配置 | 实际设备型号 | Release 资产 | Mach ID | 测试状态 | 编译命令 |
+| 平台 | 配置 | 设备 / 配置 | Release 资产 | Mach ID | 测试记录 | 编译命令 |
 | --- | --- | --- | --- | --- | --- | --- |
 | IPQ40xx | `ipq40xx_aliyun_ap4220` | Aliyun AP4220 | `IPQ40xx-Aliyun-AP4220.elf` | 0x9000010 | ✓ | `./build.sh ipq40xx_aliyun_ap4220` |
 | IPQ40xx | `ipq40xx_standard` | QCA Standard Common | `IPQ40xx-QCA-Standard.elf` | --- | ✓ | `./build.sh ipq40xx_standard` |
